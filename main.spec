@@ -1,15 +1,26 @@
 # -*- mode: python ; coding: utf-8 -*-
 
-block_cipher = None
+import sys
+from PyInstaller.utils.hooks import collect_submodules, collect_data_files
+
+# --- Сбор всех скрытых импортов ---
+hidden_imports = []
+for pkg in ['pandas', 'numpy', 'openpyxl', 'lxml', 'ttkbootstrap']:
+    hidden_imports += collect_submodules(pkg)
+
+# --- Сбор данных (иконки, шаблоны и т.п.) ---
+datas = collect_data_files('ttkbootstrap')
+datas += collect_data_files('pandas')
+datas += collect_data_files('openpyxl')
+datas += collect_data_files('lxml')
+datas += [('assets/icon.ico', 'assets')]  # иконка
 
 a = Analysis(
     ['main.py'],
-    pathex=[],  # можешь указать абсолютный путь к проекту, если нужно
+    pathex=[],
     binaries=[],
-    datas=[
-        ('assets/icon.ico', 'assets'),  # если хочешь включить иконку внутрь exe
-    ],
-    hiddenimports=['pandas', 'numpy', 'openpyxl', 'lxml', 'ttkbootstrap'],
+    datas=datas,
+    hiddenimports=hidden_imports,
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],
@@ -18,7 +29,7 @@ a = Analysis(
     optimize=0,
 )
 
-pyz = PYZ(a.pure, a.zipped_data, cipher=block_cipher)
+pyz = PYZ(a.pure)
 
 exe = EXE(
     pyz,
@@ -30,8 +41,8 @@ exe = EXE(
     bootloader_ignore_signals=False,
     strip=False,
     upx=True,
-    console=False,                    # --noconsole
-    icon='assets/icon.ico',           # --icon=assets/icon.ico
+    console=False,
+    icon='assets/icon.ico',
 )
 
 coll = COLLECT(
@@ -40,6 +51,5 @@ coll = COLLECT(
     a.datas,
     strip=False,
     upx=True,
-    upx_exclude=[],
-    name='Pricelist',                 # имя итогового каталога (можно любое)
+    name='Pricelist',
 )
