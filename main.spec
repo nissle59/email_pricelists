@@ -15,6 +15,8 @@ for pkg in ['pandas', 'numpy', 'openpyxl', 'lxml', 'ttkbootstrap']:
 datas = collect_data_files('ttkbootstrap')
 datas += collect_data_files('pandas')
 datas += collect_data_files('openpyxl')
+datas += collect_data_files('xlrd')
+datas += collect_data_files('xlwings')
 datas += collect_data_files('lxml')
 datas += [('assets/icon.ico', 'assets')]  # иконка
 
