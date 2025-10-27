@@ -1,4 +1,10 @@
 # -*- mode: python ; coding: utf-8 -*-
+block_cipher = None
+
+def get_pandas_path():
+    import pandas
+    pandas_path = pandas.__path__[0]
+    return pandas_path
 
 import sys
 from PyInstaller.utils.hooks import collect_submodules, collect_data_files
@@ -28,6 +34,10 @@ a = Analysis(
     noarchive=False,
     optimize=0,
 )
+
+dict_tree = Tree(get_pandas_path(), prefix='pandas', excludes=["*.pyc"])
+a.datas += dict_tree
+a.binaries = filter(lambda x: 'pandas' not in x[0], a.binaries)
 
 pyz = PYZ(a.pure)
 
