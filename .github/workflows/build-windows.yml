@@ -25,12 +25,11 @@ jobs:
           python -m pip install --upgrade pip
           pip install pyinstaller
           if (Test-Path requirements.txt) {
-            pip install -r requirements.txt --ignore-requires-python || echo "Ignore uvloop"
-            pip uninstall -y uvloop || echo "uvloop not installed"
+            pip install -r requirements.txt
           }
 
       - name: Build executable
-        run: pyinstaller main.spec
+        run: pyinstaller --onefile --icon=assets/icon.ico main.py
         # можешь добавить иконку:
         # run: pyinstaller --onefile --icon=icon.ico main.py
 
