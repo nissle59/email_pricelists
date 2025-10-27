@@ -1,43 +1,58 @@
-# -*- mode: python -*-
+# -*- mode: python ; coding: utf-8 -*-
 
-block_cipher = None
+import sys
 
-def get_pandas_path():
-    import pandas
-    pandas_path = pandas.__path__[0]
-    return pandas_path
+from PyInstaller.building.api import PYZ, EXE, COLLECT
+from PyInstaller.building.build_main import Analysis
+from PyInstaller.utils.hooks import collect_submodules, collect_data_files
+
+# --- Сбор всех скрытых импортов ---
+hidden_imports = []
+for pkg in ['pandas', 'numpy', 'openpyxl', 'lxml', 'ttkbootstrap']:
+    hidden_imports += collect_submodules(pkg)
+
+# --- Сбор данных (иконки, шаблоны и т.п.) ---
+datas = collect_data_files('ttkbootstrap')
+datas += collect_data_files('pandas')
+datas += collect_data_files('openpyxl')
+datas += collect_data_files('lxml')
+datas += [('assets/icon.ico', 'assets')]  # иконка
 
 a = Analysis(
     ['main.py'],
     pathex=[],
-    binaries=None,
-    datas=None,
-    hiddenimports=[],
-    hookspath=None,
-    runtime_hooks=None,
-    excludes=None,
-    win_no_prefer_redirects=None,
-    win_private_assemblies=None,
-    cipher=block_cipher)
+    binaries=[],
+    datas=datas,
+    hiddenimports=hidden_imports,
+    hookspath=[],
+    hooksconfig={},
+    runtime_hooks=[],
+    excludes=[],
+    noarchive=False,
+    optimize=0,
+)
 
-dict_tree = Tree(get_pandas_path(), prefix='pandas', excludes=["*.pyc"])
-a.datas += dict_tree
-a.binaries = filter(lambda x: 'pandas' not in x[0], a.binaries)
+pyz = PYZ(a.pure)
 
-pyz = PYZ(a.pure, a.zipped_data,
-    cipher=block_cipher)
-exe = EXE(pyz,
+exe = EXE(
+    pyz,
     a.scripts,
+    [],
     exclude_binaries=True,
     name='Pricelist',
     debug=False,
-    strip=None,
+    bootloader_ignore_signals=False,
+    strip=False,
     upx=True,
-    console=True )
-scoll = COLLECT(exe,
+    console=False,
+    icon='assets/icon.ico',
+)
+
+coll = COLLECT(
+    exe,
     a.binaries,
-    a.zipfiles,
     a.datas,
-    strip=None,
+    strip=False,
     upx=True,
-    name='Pricelist')
+    name='Pricelist',
+)
