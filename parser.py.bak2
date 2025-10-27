@@ -1,0 +1,597 @@
+import re
+
+import pandas as pd
+import json
+import ttkbootstrap as ttk
+from ttkbootstrap.constants import *
+from ttkbootstrap.toast import ToastNotification
+from functools import partial
+from pathlib import Path
+
+import crud
+import utils.db
+from utils.convert_df import to_excel_with_role_widths
+
+utils.db.init_db()
+
+FILE_PATH = Path(
+    "sources/archive/Прайс-лист_АО_МЕГАЛАЙТ_для_ИП Бакулин Игорь Юрьевич (20).xlsx")  # сюда подставляй свой путь к файлу
+SETTINGS_CONFIG_NAME = "Базовый"
+
+
+def read_excel_safe(file_path):
+    # Сначала пробуем стандартный openpyxl
+    try:
+        df = pd.read_excel(file_path, header=None)
+        return df
+    except KeyError as e:
+        print(f"openpyxl не смог прочитать файл: {e}")
+        # Если есть Excel на машине (Windows/Mac), используем xlwings
+        try:
+            import xlwings as xw
+            print("Пробуем через xlwings...")
+            app = xw.App(visible=False)
+            wb = xw.Book(file_path)
+            sheet = wb.sheets[0]  # читаем первый лист
+            data = sheet.used_range.value
+            wb.close()
+            app.quit()
+            df = pd.DataFrame(data)
+            return df
+        except Exception as e2:
+            print(f"Не удалось прочитать через xlwings: {e2}")
+            raise
+
+
+def normalize_stock_value(value):
+    """
+    Приводит значение остатка к единому числовому формату.
+    Обрабатывает случаи: '>50', 'БОЛЕЕ50', '50+', '~50', 'около 50' и т.д.
+    """
+    if pd.isna(value):
+        return 0
+
+    # Если уже число - возвращаем как есть
+    if isinstance(value, (int, float)):
+        return int(value)
+
+    value_str = str(value).strip().upper()
+
+    # Убираем лишние символы и слова
+    value_str = re.sub(r'[БОЛЕЕ|БОЛЬШЕ|ОКОЛО|ПРИМЕРНО|~|ПРИБЛИЗИТЕЛЬНО]', '', value_str, flags=re.IGNORECASE)
+    value_str = value_str.replace(' ', '')
+
+    # Ищем числа в строке
+    numbers = re.findall(r'\d+', value_str)
+
+    if numbers:
+        # Берем первое найденное число
+        stock_value = int(numbers[0])
+
+        # Если есть знаки ">" или "+" - добавляем маркер того, что это минимальное значение
+        if any(symbol in value_str for symbol in ['>', '+', '≥']):
+            return f"{stock_value}+"  # Или можно вернуть просто stock_value, если нужны только цифры
+        else:
+            return stock_value
+    else:
+        # Если чисел нет, проверяем текстовые обозначения
+        if any(word in value_str for word in ['ЕСТЬ', 'ВНАЛИЧИИ', 'ДА', 'YES', '++']):
+            return 1  # или "Есть"
+        elif any(word in value_str for word in ['НЕТ', 'НЕТВНАЛИЧИИ', 'НЕТВ', 'ОТСУТСТВУЕТ', 'NO', '--', '---']):
+            return 0
+        else:
+            return 0  # По умолчанию 0 для неизвестных форматов
+
+
+class PriceParserApp(ttk.Window):
+    def __init__(self, vendor, file_in, file_prefix: str = "", config_name: str | None = None):
+        self.file_path = Path(file_in)
+        self.output_file = Path(Path(file_prefix) / Path(self.file_path.stem + '.xlsx'))
+        self.config_name = config_name
+        if not config_name:
+            self.config_name = f"Базовый [{vendor}]"
+        super().__init__(title="Парсер прайс-листов", themename="flatly", size=(1200, 750))
+
+        crud.add_role("Наименование", required=True)
+        crud.add_role("Закупочная цена", required=True)
+        crud.add_role("Артикул", required=True)
+        crud.add_role("Остаток", required=True)
+        crud.add_role("Бренд", required=False)
+        crud.add_role("РРЦ", required=False)
+
+        self.VENDOR = vendor
+
+        crud.add_vendor(self.VENDOR)
+
+        self.ROLES = crud.list_roles()
+
+        self.CONFIG = crud.load_config_by_name(self.config_name)
+
+        self.df_raw = read_excel_safe(self.file_path)
+        self.df = None
+        self.df_filtered = None
+        self.header_row = None
+
+        self.preview_tree = None
+        self.role_comboboxes = {}
+        self.tree = None
+        self.preview_tree_bottom = None
+        self.preview_visible = False
+
+        self._build_header_selector()
+
+    # ----------------- Этап 1: выбор шапки -----------------
+    def _build_header_selector(self):
+        for w in self.winfo_children(): w.destroy()
+        ttk.Label(self, text="Выберите строку заголовка (клик по строке):", font="-size 11 -weight bold").pack(anchor=W,
+                                                                                                               padx=10,
+                                                                                                               pady=(
+                                                                                                                   10,
+                                                                                                                   6))
+
+        frame = ttk.Frame(self)
+        frame.pack(fill=BOTH, expand=YES, padx=10, pady=5)
+
+        cols = [f"Кол {i + 1}" for i in range(len(self.df_raw.columns))]
+        self.preview_tree = ttk.Treeview(frame, show="headings", columns=cols, height=20)
+        for i, c in enumerate(cols):
+            self.preview_tree.heading(c, text=c)
+            self.preview_tree.column(c, width=120, anchor=W)
+        vsb = ttk.Scrollbar(frame, orient=VERTICAL, command=self.preview_tree.yview)
+        self.preview_tree.configure(yscroll=vsb.set)
+        self.preview_tree.pack(side=LEFT, fill=BOTH, expand=YES)
+        vsb.pack(side=LEFT, fill=Y)
+
+        for idx, row in self.df_raw.head(50).iterrows():
+            self.preview_tree.insert("", END, values=[self._short_str(x) for x in row.tolist()], iid=str(idx))
+
+            # --- если ранее был выбран заголовок ---
+            try:
+                saved_header_row = self.CONFIG.get("header_row", None)
+            except:
+                saved_header_row = None
+            if saved_header_row is not None:
+                try:
+                    # Проверяем, что строка попадает в диапазон отображаемых (первые 50)
+                    if str(saved_header_row) in self.preview_tree.get_children():
+                        self.preview_tree.selection_set(str(saved_header_row))
+                        self.preview_tree.see(str(saved_header_row))
+                except Exception as e:
+                    print(f"[WARN] Ошибка при восстановлении выделения: {e}")
+
+        self.preview_tree.bind("<<TreeviewSelect>>", self._on_header_row_select)
+        self.info_label = ttk.Label(self, text="Нажмите на строку, где располагается заголовок", bootstyle=INFO)
+        self.info_label.pack(pady=5)
+
+    def _short_str(self, v, maxlen=40):
+        s = "" if pd.isna(v) else str(v)
+        return s if len(s) <= maxlen else s[:maxlen - 3] + "..."
+
+    def _on_header_row_select(self, event):
+        sel = self.preview_tree.selection()
+        if not sel:
+            return
+        self.header_row = int(sel[0])
+        self.info_label.config(text=f"Вы выбрали строку {self.header_row + 1}")
+        if not hasattr(self, "_continue_btn"):
+            self._continue_btn = ttk.Button(self, text="Продолжить", bootstyle=SUCCESS, command=self._apply_header)
+            self._continue_btn.pack(pady=8)
+
+    # ----------------- Этап 2: строим второй экран -----------------
+    # def _apply_header(self):
+    #     # объединяем строки шапки
+    #     header_part = self.df_raw.iloc[self.header_row:self.header_row + 1]
+    #     headers = header_part.fillna("").astype(str).agg(lambda col: " ".join([v.strip() for v in col if v.strip()]),
+    #                                                      axis=0)
+    #     self.df = self.df_raw.iloc[self.header_row + 1:].copy()
+    #     self.df.columns = headers
+    #     self.df.dropna(how="all", inplace=True)
+    #     self.df.reset_index(drop=True, inplace=True)
+    #
+    #     # ---------------- фильтруем колонки без названия ----------------
+    #     valid_columns = [c for c in self.df.columns if c.strip() != ""]
+    #     self.df = self.df[valid_columns]
+    #
+    #     # чистим окно и строим интерфейс выбора ролей
+    #     for w in self.winfo_children(): w.destroy()
+    #
+    #     container = ttk.Frame(self)
+    #     container.pack(fill=BOTH, expand=YES, padx=8, pady=8)
+    #
+    #     # Верхняя панель: только роли
+    #     top_frame = ttk.Frame(container)
+    #     top_frame.pack(fill=BOTH, expand=YES)
+    #
+    #     ttk.Label(top_frame, text="Роли (назначьте столбцы):", font="-size 11 -weight bold").pack(anchor=W, pady=(0, 6))
+    #
+    #     self.role_comboboxes = {}
+    #     self.role_previews = {}
+    #
+    #     roles_canvas = ttk.Canvas(top_frame)#, height=300)
+    #     roles_scroll = ttk.Scrollbar(top_frame, orient=VERTICAL, command=roles_canvas.yview)
+    #     roles_frame = ttk.Frame(roles_canvas)
+    #
+    #     roles_frame.bind("<Configure>", lambda e: roles_canvas.configure(scrollregion=roles_canvas.bbox("all")))
+    #     roles_canvas.create_window((0, 0), window=roles_frame, anchor="nw")
+    #     roles_canvas.configure(yscrollcommand=roles_scroll.set)
+    #
+    #     roles_canvas.pack(side=LEFT, fill=BOTH, expand=YES)
+    #     roles_scroll.pack(side=LEFT, fill=Y)
+    #
+    #     for role in self.ROLES:
+    #         rowf = ttk.Frame(roles_frame)
+    #         rowf.pack(fill=X, pady=6, padx=6)
+    #         ttk.Label(rowf, text=role.name, width=15, anchor=W).pack(side=LEFT)
+    #         cmb = ttk.Combobox(rowf, values=["(не выбрано)"] + list(self.df.columns), width=30, bootstyle=INFO)
+    #         cmb.set("(не выбрано)")
+    #         if self.CONFIG:
+    #             m = self.CONFIG.get('roles_mapping')
+    #             cmb.set(m.get(role.name, "(не выбрано)"))
+    #         cmb.pack(side=LEFT, padx=(6, 0))
+    #         cmb.bind("<<ComboboxSelected>>", partial(self._on_role_change, role, cmb))
+    #         self.role_comboboxes[role] = cmb
+    #
+    #     # Создаем фрейм для кнопок
+    #     buttons_frame = ttk.Frame(top_frame)
+    #     buttons_frame.pack(pady=8, padx=6)
+    #
+    #     btn_save = ttk.Button(buttons_frame, text="Сохранить настройки", bootstyle=SUCCESS,
+    #                           command=self._save_roles)
+    #     btn_save.pack(side=LEFT, padx=(0, 10))
+    #
+    #     # Добавляем кнопку быстрого сохранения
+    #     btn_quick_save = ttk.Button(buttons_frame, text="Быстрое сохранение", bootstyle=WARNING,
+    #                                 command=self._quick_save)
+    #     btn_quick_save.pack(side=LEFT)
+    #
+    #     # Нижняя панель: предпросмотр (изначально скрыт)
+    #     self.bottom_frame = ttk.LabelFrame(container, text="Предпросмотр данных")
+    #     # Изначально не pack'аем - будет показан только когда есть назначенные роли
+    #
+    #     self._update_table()
+
+    def _apply_header(self):
+        # объединяем строки шапки
+        header_part = self.df_raw.iloc[self.header_row:self.header_row + 1]
+        headers = header_part.fillna("").astype(str).agg(lambda col: " ".join([v.strip() for v in col if v.strip()]),
+                                                         axis=0)
+        self.df = self.df_raw.iloc[self.header_row + 1:].copy()
+        self.df.columns = headers
+        self.df.dropna(how="all", inplace=True)
+        self.df.reset_index(drop=True, inplace=True)
+
+        # ---------------- фильтруем колонки без названия ----------------
+        valid_columns = [c for c in self.df.columns if c.strip() != ""]
+        self.df = self.df[valid_columns]
+
+        # чистим окно и строим интерфейс выбора ролей
+        for w in self.winfo_children(): w.destroy()
+
+        container = ttk.Frame(self)
+        container.pack(fill=BOTH, expand=YES, padx=8, pady=8)
+
+        # Верхняя панель: заголовок и кнопки
+        top_header_frame = ttk.Frame(container)
+        top_header_frame.pack(fill=X, pady=(0, 10))
+
+        ttk.Label(top_header_frame, text="Роли (назначьте столбцы):",
+                  font="-size 11 -weight bold").pack(side=LEFT, anchor=W)
+
+        # Кнопки справа
+        buttons_frame = ttk.Frame(top_header_frame)
+        buttons_frame.pack(side=RIGHT, anchor=E)
+
+        btn_quick_save = ttk.Button(buttons_frame, text="Быстрое сохранение", bootstyle=WARNING,
+                                    command=self._quick_save)
+        btn_quick_save.pack(side=LEFT, padx=(10, 0))
+
+        btn_save = ttk.Button(buttons_frame, text="Сохранить настройки", bootstyle=SUCCESS,
+                              command=self._save_roles)
+        btn_save.pack(side=LEFT, padx=(10, 0))
+
+        # Основной контент с ролями и предпросмотром
+        main_content = ttk.Frame(container)
+        main_content.pack(fill=BOTH, expand=YES)
+
+        # Верхняя часть - роли
+        top_frame = ttk.Frame(main_content)  # начальная высота
+        top_frame.place(x=0, y=0, relwidth=1, height=300)  # используем place
+        self.top_frame = top_frame  # сохраняем ссылку для доступа из методов перетаскивания
+
+        self.role_comboboxes = {}
+        self.role_previews = {}
+        self.available_columns = list(self.df.columns)
+
+        # Создаем скроллируемую область для ролей
+        roles_canvas = ttk.Canvas(top_frame)
+        roles_scroll = ttk.Scrollbar(top_frame, orient=VERTICAL, command=roles_canvas.yview)
+
+        roles_frame = ttk.Frame(roles_canvas)
+
+        roles_frame.bind("<Configure>", lambda e: roles_canvas.configure(scrollregion=roles_canvas.bbox("all")))
+        roles_canvas.create_window((0, 0), window=roles_frame, anchor="nw")
+        roles_canvas.configure(yscrollcommand=roles_scroll.set)
+
+        # Упаковываем канвас, скроллбар пока не упаковываем
+        roles_canvas.pack(side=LEFT, fill=BOTH, expand=YES)
+
+        # Функция для проверки необходимости скроллбара
+        def check_scrollbar_needed(*args):
+            roles_canvas.update_idletasks()
+            content_height = roles_frame.winfo_reqheight()
+            visible_height = roles_canvas.winfo_height()
+
+            if content_height > visible_height:
+                if not roles_scroll.winfo_ismapped():
+                    roles_scroll.pack(side=RIGHT, fill=Y)
+            else:
+                if roles_scroll.winfo_ismapped():
+                    roles_scroll.pack_forget()
+
+        roles_canvas.bind("<Configure>", check_scrollbar_needed)
+        roles_frame.bind("<Configure>", check_scrollbar_needed)
+
+        for role in self.ROLES:
+            rowf = ttk.Frame(roles_frame)
+            rowf.pack(fill=X, pady=4, padx=6)
+            ttk.Label(rowf, text=role.name, width=15, anchor=W).pack(side=LEFT)
+            cmb = ttk.Combobox(rowf, values=["(не выбрано)"] + self.available_columns, width=30, bootstyle=INFO)
+            cmb.set("(не выбрано)")
+            if self.CONFIG:
+                m = self.CONFIG.get('roles_mapping')
+                cmb.set(m.get(role.name, "(не выбрано)"))
+            cmb.pack(side=LEFT, padx=(6, 0))
+            cmb.bind("<<ComboboxSelected>>", partial(self._on_role_change, role, cmb))
+            self.role_comboboxes[role] = cmb
+
+        # Кастомный разделитель
+        self.separator = ttk.Frame(main_content, height=8, style="secondary.TFrame")
+        self.separator.place(x=0, y=300, relwidth=1, height=8)  # позиционируем разделитель
+
+        # Нижняя часть - предпросмотр
+        self.bottom_frame = ttk.LabelFrame(main_content, text="Предпросмотр данных")
+        self.bottom_frame.place(x=0, y=308, relwidth=1, relheight=1)  # relheight будет корректироваться
+
+        self.preview_visible = False
+        self._drag_data = {"start_y": 0, "start_top_height": 0}
+
+        # События для перетаскивания разделителя
+        self.separator.bind("<ButtonPress-1>", self._on_separator_press)
+        self.separator.bind("<B1-Motion>", self._on_separator_drag)
+        self.separator.bind("<Enter>", lambda e: self.separator.configure(cursor="sb_v_double_arrow"))
+        self.separator.bind("<Leave>", lambda e: self.separator.configure(cursor=""))
+
+        roles_canvas.after(100, check_scrollbar_needed)
+
+        self._update_table()
+
+    # Добавляем методы для перетаскивания разделителя
+    def _on_separator_press(self, event):
+        """Начало перетаскивания разделителя"""
+        self._drag_data = {
+            "start_y": event.y_root,
+            "start_top_height": self.top_frame.winfo_height()
+        }
+
+    def _on_separator_drag(self, event):
+        """Перетаскивание разделителя"""
+        if not hasattr(self, '_drag_data'):
+            return
+
+        # Вычисляем дельту от начальной точки
+        delta = event.y_root - self._drag_data["start_y"]
+
+        # Новая высота верхней части
+        new_top_height = max(100, self._drag_data["start_top_height"] + delta)
+
+        # Обновляем геометрию всех элементов
+        self.top_frame.place_configure(height=new_top_height)
+        self.separator.place_configure(y=new_top_height)
+
+        # Вычисляем высоту для нижней части
+        main_height = self.top_frame.master.winfo_height()
+        bottom_height = max(100, main_height - new_top_height - 8)  # 8 - высота разделителя
+
+        self.bottom_frame.place_configure(y=new_top_height + 8, relheight=1, height=bottom_height)
+
+        # Обновляем отображение
+        self.update_idletasks()
+
+    # ----------------- обновление доступных колонок -----------------
+    def _update_available_columns(self):
+        """Обновляет список доступных колонок для всех комбобоксов"""
+        # Собираем уже выбранные колонки
+        selected_columns = set()
+        for role, cmb in self.role_comboboxes.items():
+            selected_value = cmb.get()
+            if selected_value != "(не выбрано)":
+                selected_columns.add(selected_value)
+
+        # Формируем список доступных колонок
+        available_columns = ["(не выбрано)"]
+
+        # Добавляем все колонки, кроме уже выбранных
+        for column in self.df.columns:
+            if column not in selected_columns:
+                available_columns.append(column)
+
+        # Обновляем все комбобоксы
+        for role, cmb in self.role_comboboxes.items():
+            current_value = cmb.get()
+            cmb['values'] = available_columns + [
+                current_value] if current_value != "(не выбрано)" else available_columns
+            # Сохраняем текущее значение, если оно еще доступно
+            if current_value not in cmb['values']:
+                cmb.set("(не выбрано)")
+
+    # ----------------- обновление итоговой таблицы -----------------
+    def _on_role_change(self, role, cmb, event=None):
+        # Сначала обновляем доступные колонки
+        self._update_available_columns()
+        # Затем обновляем таблицу
+        self._update_table()
+
+    def _update_table(self):
+        # получаем выбранные роли -> колонки
+        mapping = {role.name: cmb.get() for role, cmb in self.role_comboboxes.items() if cmb.get() != "(не выбрано)"}
+        columns = list(mapping.values())
+        headers = list(mapping.keys())
+
+        # обрабатываем данные
+        if columns:
+            try:
+                self.df_filtered = self.df[columns].copy()
+            except:
+                self.CONFIG = None
+                self._apply_header()
+            # ключевые колонки
+            price_col = mapping.get("Закупочная цена")
+            name_col = mapping.get("Наименование")
+            stock_col = mapping.get("Остаток")
+
+            # фильтр по названию
+            if name_col:
+                self.df_filtered = self.df_filtered[
+                    self.df_filtered[name_col].notna() & (self.df_filtered[name_col].astype(str).str.strip() != "")]
+
+            # фильтр по цене
+            def valid_price(v):
+                if pd.isna(v):
+                    return False
+                if isinstance(v, (int, float)):
+                    return True
+                s = str(v).strip()
+                # ищем число внутри строки
+                match = re.search(r"\d+(\.\d+)?", s)
+                if not match:
+                    return False
+                # ограничиваем общую длину до 10 символов (чтобы исключить длинный текст)
+                return len(s) <= 10
+
+            if price_col:
+                self.df_filtered = self.df_filtered[self.df_filtered[price_col].apply(valid_price)]
+
+            # Нормализация остатков
+            if stock_col and stock_col in self.df_filtered.columns:
+                self.df_filtered[stock_col] = self.df_filtered[stock_col].apply(normalize_stock_value)
+
+            # переименовываем колонки на роли
+            self.df_filtered.columns = headers
+            self.df_filtered["Поставщик"] = self.VENDOR
+
+            # Управление видимостью предпросмотра
+            if columns:  # если есть назначенные роли
+                if not self.preview_visible:
+                    self.preview_visible = True
+                    self._create_preview()
+                else:
+                    self._create_preview()  # обновляем существующий
+            else:  # если нет назначенных ролей
+                if self.preview_visible:
+                    # Скрываем предпросмотр
+                    for widget in self.bottom_frame.winfo_children():
+                        widget.destroy()
+                    self.preview_visible = False
+                self.df_filtered = None
+                return
+
+        # Обновляем компоновку
+        self.update_idletasks()
+
+    def _create_preview(self):
+        # Очищаем предпросмотр
+        for widget in self.bottom_frame.winfo_children():
+            widget.destroy()
+
+        # Создаем таблицу предпросмотра с прокруткой
+        tree_frame = ttk.Frame(self.bottom_frame)
+        tree_frame.pack(fill=BOTH, expand=YES, padx=5, pady=5)
+
+        self.preview_tree_bottom = ttk.Treeview(tree_frame, show="headings", height=15)
+
+        # Настраиваем колонки
+        mapping = {role.name: cmb.get() for role, cmb in self.role_comboboxes.items() if cmb.get() != "(не выбрано)"}
+        columns = list(mapping.values())
+        columns.append("Поставщик")
+        headers = list(mapping.keys())
+        headers.append("Поставщик")
+
+        self.preview_tree_bottom["columns"] = columns
+        for c, h in zip(columns, headers):
+            self.preview_tree_bottom.heading(c, text=h)
+            self.preview_tree_bottom.column(c, width=120, anchor=W)
+
+        # Заполняем данными
+        if columns and hasattr(self, 'df_filtered') and self.df_filtered is not None:
+            for _, row in self.df_filtered.head(100).iterrows():
+                self.preview_tree_bottom.insert("", END, values=list(row))
+
+        # Добавляем скроллбары
+        prev_vsb = ttk.Scrollbar(tree_frame, orient=VERTICAL, command=self.preview_tree_bottom.yview)
+        #prev_hsb = ttk.Scrollbar(tree_frame, orient=HORIZONTAL, command=self.preview_tree_bottom.xview)
+        self.preview_tree_bottom.configure(yscroll=prev_vsb.set) #, xscroll=prev_hsb.set)
+
+        self.preview_tree_bottom.pack(side=LEFT, fill=BOTH, expand=YES)
+        prev_vsb.pack(side=RIGHT, fill=Y)
+        #prev_hsb.pack(side=BOTTOM, fill=X)
+
+    # ----------------- сохранение -----------------
+    def _save_roles(self):
+        mapping = {role.name: cmb.get() for role, cmb in self.role_comboboxes.items() if cmb.get() != "(не выбрано)"}
+        crud.save_config(
+            config_name=self.config_name,
+            vendor_name=self.VENDOR,
+            header_row=self.header_row,
+            roles_mapping=mapping
+        )
+        to_excel_with_role_widths(self.df_filtered, self.output_file)
+        ToastNotification(title="Сохранено", message=f"Настройки записаны в БД",
+                          bootstyle=SUCCESS).show_toast()
+        return self.df_filtered
+
+    # ----------------- быстрое сохранение -----------------
+    def _quick_save(self):
+        """Быстрое сохранение результата в выбранный файл"""
+        if not hasattr(self, 'df_filtered') or self.df_filtered is None or self.df_filtered.empty:
+            ToastNotification(
+                title="Ошибка",
+                message="Нет данных для сохранения",
+                bootstyle=DANGER
+            ).show_toast()
+            return
+
+        # Запрашиваем файл у пользователя
+        from tkinter import filedialog
+        output_file = filedialog.asksaveasfilename(
+            title="Сохранить результат как...",
+            defaultextension=".xlsx",
+            filetypes=[("Excel files", "*.xlsx"), ("All files", "*.*")]
+        )
+
+        if not output_file:
+            return  # Пользователь отменил сохранение
+
+        try:
+            # Сохраняем файл
+            to_excel_with_role_widths(self.df_filtered, output_file)
+
+            ToastNotification(
+                title="Успешно",
+                message=f"Файл сохранен: {output_file}",
+                bootstyle=SUCCESS
+            ).show_toast()
+
+        except Exception as e:
+            ToastNotification(
+                title="Ошибка",
+                message=f"Ошибка сохранения: {str(e)}",
+                bootstyle=DANGER
+            ).show_toast()
+
+
+if __name__ == "__main__":
+    app = PriceParserApp(
+        "АО Мегалайт",
+        FILE_PATH
+    )
+    app.mainloop()
