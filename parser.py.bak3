@@ -1,4 +1,5 @@
 import re
+
 import pandas as pd
 import json
 import ttkbootstrap as ttk
@@ -246,6 +247,7 @@ class PriceParserApp(ttk.Window):
         self._build_header_selector()
 
     # ----------------- Этап 1: выбор шапки -----------------
+    # Добавляем метод в класс PriceParserApp
     def _auto_detect_header_row(self):
         """Автоматически определяет строку заголовка на основе существующего маппинга или ключевых слов"""
 
@@ -372,105 +374,6 @@ class PriceParserApp(ttk.Window):
                 f"Автоопределение по ключевым словам не удалось. Лучший score: {best_match_score} (требуется {min_acceptable_score})")
             return None
 
-    def _auto_assign_roles(self, headers):
-        """Автоматически назначает роли колонкам на основе ключевых слов"""
-        # Словарь ключевых слов для каждой роли (в порядке приоритета)
-        role_keywords = {
-            "Наименование": [
-                "наименование", "номенклатура", "название", "товар", "name", "product"
-            ],
-            "Закупочная цена": [
-                "цена", "стоимость", "закуп", "прайс", "price", "cost", "розница", "розничная"
-            ],
-            "Артикул": [
-                "артикул", "арт", "код", "article", "sku", "code", "кодтовара", "кодпродукта"
-            ],
-            "Остаток": [
-                "остаток", "склад", "наличие", "кол-во", "количество", "stock", "quantity", "available", "остатки"
-            ],
-            "Бренд": [
-                "бренд", "производитель", "brand", "manufacturer", "фирма", "произв", "торговаямарка", "марка"
-            ],
-            "РРЦ": [
-                "ррц", "рц", "цр", "рекомендованная", "recommended", "rrp", "мрц", "рекомендованнаяцена"
-            ]
-        }
-
-        assigned_mapping = {}
-        used_columns = set()
-
-        # Сначала назначаем обязательные роли
-        required_roles = [role for role in self.ROLES if role.required]
-
-        for role in required_roles:
-            role_name = role.name
-            if role_name not in role_keywords:
-                continue
-
-            best_column = None
-            best_score = 0
-
-            for column in headers:
-                if column in used_columns:
-                    continue
-
-                column_lower = column.lower().strip()
-                if not column_lower:
-                    continue
-
-                # Подсчитываем score для этой колонки
-                score = 0
-                for i, keyword in enumerate(role_keywords[role_name]):
-                    if keyword in column_lower:
-                        # Даем больше очков за более точные совпадения
-                        score = len(role_keywords[role_name]) - i
-                        break
-
-                if score > best_score:
-                    best_score = score
-                    best_column = column
-
-            if best_column and best_score > 0:
-                assigned_mapping[role_name] = best_column
-                used_columns.add(best_column)
-
-        # Затем назначаем необязательные роли
-        optional_roles = [role for role in self.ROLES if not role.required]
-
-        for role in optional_roles:
-            role_name = role.name
-            if role_name not in role_keywords:
-                continue
-
-            best_column = None
-            best_score = 0
-
-            for column in headers:
-                if column in used_columns:
-                    continue
-
-                column_lower = column.lower().strip()
-                if not column_lower:
-                    continue
-
-                # Подсчитываем score для этой колонки
-                score = 0
-                for i, keyword in enumerate(role_keywords[role_name]):
-                    if keyword in column_lower:
-                        score = len(role_keywords[role_name]) - i
-                        break
-
-                if score > best_score:
-                    best_score = score
-                    best_column = column
-
-            # Для необязательных ролей можно установить более низкий порог
-            if best_column and best_score >= 2:  # Минимальный порог для необязательных
-                assigned_mapping[role_name] = best_column
-                used_columns.add(best_column)
-
-        return assigned_mapping
-
     # Также можно добавить кнопку для принудительного автоопределения
     def _build_header_selector(self):
         for w in self.winfo_children(): w.destroy()
@@ -586,6 +489,20 @@ class PriceParserApp(ttk.Window):
             self._continue_btn = ttk.Button(self, text="Продолжить", bootstyle=SUCCESS, command=self._apply_header)
             self._continue_btn.pack(pady=8)
 
+    def _short_str(self, v, maxlen=40):
+        s = "" if pd.isna(v) else str(v)
+        return s if len(s) <= maxlen else s[:maxlen - 3] + "..."
+
+    def _on_header_row_select(self, event):
+        sel = self.preview_tree.selection()
+        if not sel:
+            return
+        self.header_row = int(sel[0])
+        self.info_label.config(text=f"Вы выбрали строку {self.header_row + 1}")
+        if not hasattr(self, "_continue_btn"):
+            self._continue_btn = ttk.Button(self, text="Продолжить", bootstyle=SUCCESS, command=self._apply_header)
+            self._continue_btn.pack(pady=8)
+
     # ----------------- Этап 2: строим второй экран -----------------
     def _apply_header(self):
         # объединяем строки шапки
@@ -620,11 +537,6 @@ class PriceParserApp(ttk.Window):
         # Кнопки справа
         buttons_frame = ttk.Frame(top_header_frame)
         buttons_frame.pack(side=RIGHT, anchor=E)
-
-        # Добавляем кнопку автоназначения ролей
-        btn_auto_assign = ttk.Button(buttons_frame, text="Автоназначение ролей", bootstyle=INFO,
-                                     command=self._auto_assign_roles_ui)
-        btn_auto_assign.pack(side=LEFT, padx=(10, 0))
 
         btn_quick_save = ttk.Button(buttons_frame, text="Быстрое сохранение", bootstyle=WARNING,
                                     command=self._quick_save)
@@ -676,26 +588,15 @@ class PriceParserApp(ttk.Window):
         roles_canvas.bind("<Configure>", check_scrollbar_needed)
         roles_frame.bind("<Configure>", check_scrollbar_needed)
 
-        # Автоматически назначаем роли, если это новый конфиг
-        auto_assigned_mapping = None
-        if not self.CONFIG or 'roles_mapping' not in self.CONFIG:
-            auto_assigned_mapping = self._auto_assign_roles(self.df.columns)
-            print(f"Автоназначенные роли: {auto_assigned_mapping}")
-
         for role in self.ROLES:
             rowf = ttk.Frame(roles_frame)
             rowf.pack(fill=X, pady=4, padx=6)
             ttk.Label(rowf, text=role.name, width=15, anchor=W).pack(side=LEFT)
             cmb = ttk.Combobox(rowf, values=["(не выбрано)"] + self.available_columns, width=30, bootstyle=INFO)
             cmb.set("(не выбрано)")
-
-            # Приоритет: сохраненный конфиг > автоназначение
-            if self.CONFIG and 'roles_mapping' in self.CONFIG:
+            if self.CONFIG:
                 m = self.CONFIG.get('roles_mapping')
                 cmb.set(m.get(role.name, "(не выбрано)"))
-            elif auto_assigned_mapping and role.name in auto_assigned_mapping:
-                cmb.set(auto_assigned_mapping[role.name])
-
             cmb.pack(side=LEFT, padx=(6, 0))
             cmb.bind("<<ComboboxSelected>>", partial(self._on_role_change, role, cmb))
             self.role_comboboxes[role] = cmb
@@ -720,47 +621,6 @@ class PriceParserApp(ttk.Window):
         roles_canvas.after(100, check_scrollbar_needed)
 
         self._update_table()
-
-        # Показываем уведомление об автоназначении
-        if auto_assigned_mapping:
-            assigned_count = len([v for v in auto_assigned_mapping.values() if v != "(не выбрано)"])
-            if assigned_count > 0:
-                ToastNotification(
-                    title="Автоназначение ролей",
-                    message=f"Автоматически назначено {assigned_count} ролей. Проверьте и при необходимости скорректируйте.",
-                    bootstyle=INFO,
-                    duration=4000
-                ).show_toast()
-
-    def _auto_assign_roles_ui(self):
-        """Автоматическое назначение ролей по ключевым словам (по кнопке)"""
-        auto_assigned_mapping = self._auto_assign_roles(self.df.columns)
-
-        if not auto_assigned_mapping:
-            ToastNotification(
-                title="Автоназначение",
-                message="Не удалось автоматически назначить роли",
-                bootstyle=WARNING
-            ).show_toast()
-            return
-
-        # Применяем автоназначенные роли к комбобоксам
-        assigned_count = 0
-        for role, cmb in self.role_comboboxes.items():
-            role_name = role.name
-            if role_name in auto_assigned_mapping:
-                cmb.set(auto_assigned_mapping[role_name])
-                assigned_count += 1
-
-        # Обновляем доступные колонки и таблицу
-        self._update_available_columns()
-        self._update_table()
-
-        ToastNotification(
-            title="Автоназначение ролей",
-            message=f"Назначено {assigned_count} ролей автоматически",
-            bootstyle=SUCCESS
-        ).show_toast()
 
     # Добавляем методы для перетаскивания разделителя
     def _on_separator_press(self, event):

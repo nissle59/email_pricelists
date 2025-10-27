@@ -1,0 +1,235 @@
+import re
+
+import pandas as pd
+import json
+import ttkbootstrap as ttk
+from ttkbootstrap.constants import *
+from ttkbootstrap.toast import ToastNotification
+from functools import partial
+from pathlib import Path
+
+FILE_PATH = Path("sources/archive/ПРАЙС ЗАПЧАСТИ 13.10.25.xlsx")  # сюда подставляй свой путь к файлу
+SETTINGS_FILE = Path("parser_settings/" + FILE_PATH.stem + '.json')
+OUTPUT_FILE = FILE_PATH.stem + '.xlsx'
+print(FILE_PATH)
+print(OUTPUT_FILE)
+ROLES = ["Артикул", "Наименование", "Остаток", "Закупочная цена", "(?) Бренд", "(?) РРЦ"]
+
+def read_excel_safe(file_path):
+    # Сначала пробуем стандартный openpyxl
+    try:
+        df = pd.read_excel(file_path, header=None)
+        return df
+    except KeyError as e:
+        print(f"openpyxl не смог прочитать файл: {e}")
+        # Если есть Excel на машине (Windows/Mac), используем xlwings
+        try:
+            import xlwings as xw
+            print("Пробуем через xlwings...")
+            app = xw.App(visible=False)
+            wb = xw.Book(file_path)
+            sheet = wb.sheets[0]  # читаем первый лист
+            data = sheet.used_range.value
+            wb.close()
+            app.quit()
+            df = pd.DataFrame(data)
+            return df
+        except Exception as e2:
+            print(f"Не удалось прочитать через xlwings: {e2}")
+            raise
+
+class PriceParserApp(ttk.Window):
+    def __init__(self):
+        super().__init__(title="Парсер прайс-листов", themename="flatly", size=(1200, 750))
+
+        self.df_raw = read_excel_safe(FILE_PATH)
+        self.df = None
+        self.df_filtered = None
+        self.header_row = None
+
+        self.preview_tree = None
+        self.role_comboboxes = {}
+        self.tree = None
+
+        self._build_header_selector()
+
+    # ----------------- Этап 1: выбор шапки -----------------
+    def _build_header_selector(self):
+        for w in self.winfo_children(): w.destroy()
+        ttk.Label(self, text="Выберите строку заголовка (клик по строке):", font="-size 11 -weight bold").pack(anchor=W, padx=10, pady=(10,6))
+
+        frame = ttk.Frame(self)
+        frame.pack(fill=BOTH, expand=YES, padx=10, pady=5)
+
+        cols = [f"Кол {i+1}" for i in range(len(self.df_raw.columns))]
+        self.preview_tree = ttk.Treeview(frame, show="headings", columns=cols, height=20)
+        for i, c in enumerate(cols):
+            self.preview_tree.heading(c, text=c)
+            self.preview_tree.column(c, width=120, anchor=W)
+        vsb = ttk.Scrollbar(frame, orient=VERTICAL, command=self.preview_tree.yview)
+        self.preview_tree.configure(yscroll=vsb.set)
+        self.preview_tree.pack(side=LEFT, fill=BOTH, expand=YES)
+        vsb.pack(side=LEFT, fill=Y)
+
+        for idx, row in self.df_raw.head(50).iterrows():
+            self.preview_tree.insert("", END, values=[self._short_str(x) for x in row.tolist()], iid=str(idx))
+
+        self.preview_tree.bind("<<TreeviewSelect>>", self._on_header_row_select)
+        self.info_label = ttk.Label(self, text="Нажмите на строку, где располагается заголовок", bootstyle=INFO)
+        self.info_label.pack(pady=5)
+
+    def _short_str(self, v, maxlen=40):
+        s = "" if pd.isna(v) else str(v)
+        return s if len(s) <= maxlen else s[:maxlen-3]+"..."
+
+    def _on_header_row_select(self, event):
+        sel = self.preview_tree.selection()
+        if not sel:
+            return
+        self.header_row = int(sel[0])
+        self.info_label.config(text=f"Вы выбрали строку {self.header_row+1}")
+        if not hasattr(self, "_continue_btn"):
+            self._continue_btn = ttk.Button(self, text="Продолжить", bootstyle=SUCCESS, command=self._apply_header)
+            self._continue_btn.pack(pady=8)
+
+    # ----------------- Этап 2: строим второй экран -----------------
+    def _apply_header(self):
+        # объединяем строки шапки
+        header_part = self.df_raw.iloc[self.header_row:self.header_row+1]
+        headers = header_part.fillna("").astype(str).agg(lambda col: " ".join([v.strip() for v in col if v.strip()]), axis=0)
+        self.df = self.df_raw.iloc[self.header_row+1:].copy()
+        self.df.columns = headers
+        self.df.dropna(how="all", inplace=True)
+        self.df.reset_index(drop=True, inplace=True)
+
+        # ---------------- фильтруем колонки без названия ----------------
+        valid_columns = [c for c in self.df.columns if c.strip() != ""]
+        self.df = self.df[valid_columns]
+
+        # чистим окно и строим интерфейс выбора ролей
+        for w in self.winfo_children(): w.destroy()
+
+        container = ttk.Frame(self)
+        container.pack(fill=BOTH, expand=YES, padx=8, pady=8)
+
+        # Левая панель: роли
+        left = ttk.Frame(container, width=360)
+        left.pack(side=LEFT, fill=Y, padx=(0,8))
+        ttk.Label(left, text="Роли (назначьте столбцы):", font="-size 11 -weight bold").pack(anchor=W, pady=(0,6))
+
+        self.role_comboboxes = {}
+        self.role_previews = {}
+
+        roles_canvas = ttk.Canvas(left, width=360, height=650)
+        roles_scroll = ttk.Scrollbar(left, orient=VERTICAL, command=roles_canvas.yview)
+        roles_frame = ttk.Frame(roles_canvas)
+
+        roles_frame.bind("<Configure>", lambda e: roles_canvas.configure(scrollregion=roles_canvas.bbox("all")))
+        roles_canvas.create_window((0,0), window=roles_frame, anchor="nw")
+        roles_canvas.configure(yscrollcommand=roles_scroll.set)
+
+        roles_canvas.pack(side=LEFT, fill=BOTH, expand=YES)
+        roles_scroll.pack(side=LEFT, fill=Y)
+
+        for role in ROLES:
+            rowf = ttk.Frame(roles_frame)
+            rowf.pack(fill=X, pady=6, padx=6)
+            ttk.Label(rowf, text=role, width=15, anchor=W).pack(side=LEFT)
+            cmb = ttk.Combobox(rowf, values=["(не выбрано)"] + list(self.df.columns), width=30, bootstyle=INFO)
+            cmb.set("(не выбрано)")
+            cmb.pack(side=LEFT, padx=(6,0))
+            cmb.bind("<<ComboboxSelected>>", partial(self._on_role_change, role, cmb))
+            self.role_comboboxes[role] = cmb
+
+        btn_save = ttk.Button(left, text="Сохранить настройки", bootstyle=SUCCESS, command=self._save_roles)
+        btn_save.pack(pady=8, padx=6)
+
+        # Правая панель: таблица
+        right = ttk.Frame(container)
+        right.pack(side=RIGHT, fill=BOTH, expand=YES)
+        self.tree = ttk.Treeview(right, columns=[], show="headings")
+        vsb = ttk.Scrollbar(right, orient=VERTICAL, command=self.tree.yview)
+        hsb = ttk.Scrollbar(right, orient=HORIZONTAL, command=self.tree.xview)
+        self.tree.configure(yscroll=vsb.set, xscroll=hsb.set)
+        self.tree.grid(row=0, column=0, sticky=NSEW)
+        vsb.grid(row=0, column=1, sticky=NS)
+        hsb.grid(row=1, column=0, sticky=EW)
+        right.grid_rowconfigure(0, weight=1)
+        right.grid_columnconfigure(0, weight=1)
+
+        self._update_table()
+
+    # ----------------- обновление итоговой таблицы -----------------
+    def _on_role_change(self, role, cmb, event=None):
+        self._update_table()
+
+    def _update_table(self):
+        # получаем выбранные роли -> колонки
+        mapping = {role: cmb.get() for role, cmb in self.role_comboboxes.items() if cmb.get() != "(не выбрано)"}
+        columns = list(mapping.values())
+        headers = list(mapping.keys())
+
+        # очищаем текущую таблицу
+        for col in self.tree["columns"]:
+            self.tree.heading(col, text="")
+            self.tree.column(col, width=0)
+        self.tree["columns"] = columns
+        for c,h in zip(columns, headers):
+            self.tree.heading(c, text=h)
+            self.tree.column(c, width=140, anchor=W)
+
+        # очистка строк
+        for i in self.tree.get_children():
+            self.tree.delete(i)
+        # добавляем данные
+        if columns:
+            self.df_filtered = self.df[columns].copy()
+
+            # ключевые колонки
+            price_col = mapping.get("Закупочная цена")
+            name_col = mapping.get("Наименование")
+
+            # фильтр по названию
+            if name_col:
+                self.df_filtered = self.df_filtered[
+                    self.df_filtered[name_col].notna() & (self.df_filtered[name_col].astype(str).str.strip() != "")]
+
+            # фильтр по цене
+            def valid_price(v):
+                if pd.isna(v):
+                    return False
+                if isinstance(v, (int, float)):
+                    return True
+                s = str(v).strip()
+                # ищем число внутри строки
+                match = re.search(r"\d+(\.\d+)?", s)
+                if not match:
+                    return False
+                # ограничиваем общую длину до 10 символов (чтобы исключить длинный текст)
+                return len(s) <= 10
+
+            if price_col:
+                self.df_filtered = self.df_filtered[self.df_filtered[price_col].apply(valid_price)]
+
+            # переименовываем колонки на роли
+            self.df_filtered.columns = headers
+
+            for _, row in self.df_filtered.head(200).iterrows():
+                self.tree.insert("", END, values=list(row))
+
+    # ----------------- сохранение -----------------
+    def _save_roles(self):
+        mapping = {role: cmb.get() for role, cmb in self.role_comboboxes.items() if cmb.get() != "(не выбрано)"}
+        settings = {
+            "header_row": self.header_row,
+            "roles_mapping": mapping
+        }
+        with open(SETTINGS_FILE, "w", encoding="utf-8") as f:
+            json.dump(settings, f, ensure_ascii=False, indent=2)
+        self.df_filtered.to_excel(OUTPUT_FILE)
+        ToastNotification(title="Сохранено", message=f"Настройки записаны в {SETTINGS_FILE}", bootstyle=SUCCESS).show_toast()
+
+
+if __name__ == "__main__":
+    app = PriceParserApp()
+    app.mainloop()
