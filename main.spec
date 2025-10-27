@@ -19,7 +19,6 @@ a = Analysis(
     win_no_prefer_redirects=None,
     win_private_assemblies=None,
     cipher=block_cipher)
-)
 
 dict_tree = Tree(get_pandas_path(), prefix='pandas', excludes=["*.pyc"])
 a.datas += dict_tree
