@@ -30,7 +30,7 @@ jobs:
           }
 
       - name: Build executable
-        run: pyinstaller --onefile --name Pricelist --noconsole --icon=assets/icon.ico main.py
+        run: pyinstaller main.spec
         # можешь добавить иконку:
         # run: pyinstaller --onefile --icon=icon.ico main.py
 
