@@ -1,8 +1,8 @@
 # -*- mode: python ; coding: utf-8 -*-
 
 import sys
-
-from PyInstaller.building.api import PYZ, EXE, COLLECT
+import os
+from PyInstaller.building.api import PYZ, EXE
 from PyInstaller.building.build_main import Analysis
 from PyInstaller.utils.hooks import collect_submodules, collect_data_files
 
@@ -18,7 +18,10 @@ datas += collect_data_files('openpyxl')
 datas += collect_data_files('xlrd')
 datas += collect_data_files('xlwings')
 datas += collect_data_files('lxml')
-datas += [('assets/icon.ico', 'assets')]  # иконка
+
+# Добавляем иконку и другие ресурсы
+if os.path.exists('assets/icon.ico'):
+    datas += [('assets/icon.ico', 'assets')]
 
 a = Analysis(
     ['main.py'],
@@ -39,22 +42,15 @@ pyz = PYZ(a.pure)
 exe = EXE(
     pyz,
     a.scripts,
-    [],
-    exclude_binaries=True,
+    a.binaries,  # бинарные файлы включаем прямо в EXE
+    a.zipfiles,   # zip файлы включаем прямо в EXE
+    a.datas,      # данные включаем прямо в EXE
     name='Pricelist',
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,
     upx=True,
     console=False,
-    icon='assets/icon.ico',
-)
-
-coll = COLLECT(
-    exe,
-    a.binaries,
-    a.datas,
-    strip=False,
-    upx=True,
-    name='Pricelist',
+    icon='assets/icon.ico' if os.path.exists('assets/icon.ico') else None,
+    onefile=True  # ключевой параметр для одного файла
 )
