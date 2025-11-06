@@ -1,24 +1,10 @@
-from pathlib import Path
+import crud
+from utils.parser_logic import parse
 
-import pandas as pd
+if __name__ == '__main__':
+    parse("out.xlsx", days=7)
 
-from utils.convert_df import apply_parser_settings, to_excel_with_role_widths
-
-role_widths = {
-    "Наименование": 100,
-    "Артикул": 18,
-    "Цена": 16,
-    "Остаток": 16,
-    "(?) Бренд": 18,
-    "(?) РРЦ": 16
-}
-
-fname = Path("ПрайсЛист_БИТ046184s (12).xlsx")
-FILE_NAME = Path("sources/archive" / fname)
-SETTINGS_NAME = Path("parser_settings" / Path(fname.stem + ".json"))
-
-df_original = pd.read_excel(FILE_NAME, header=None)
-df_filtered = apply_parser_settings(df_original, SETTINGS_NAME)
-print(df_filtered.head())
-
-to_excel_with_role_widths(df_filtered, FILE_NAME.stem+".xlsx", role_widths)
+    # cfgs = crud.list_all_configs()
+    # for cfg in cfgs:
+    #     for mapping in cfg.mappings:
+    #         print(mapping.role.name, mapping.column_name)

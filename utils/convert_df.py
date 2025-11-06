@@ -1,8 +1,13 @@
+from datetime import datetime
+
 import pandas as pd
 import re
 import json
 from openpyxl.utils import get_column_letter
 from openpyxl import load_workbook
+
+from models import ParsingConfig
+
 
 def to_excel_with_role_widths(df: pd.DataFrame, filename: str, widths: dict | None = None):
     """
@@ -34,7 +39,8 @@ def to_excel_with_role_widths(df: pd.DataFrame, filename: str, widths: dict | No
     wb.save(filename)
 
 
-def apply_parser_settings(df_original: pd.DataFrame, settings_file: str) -> pd.DataFrame:
+def apply_parser_settings(df_original: pd.DataFrame, settings: ParsingConfig, vendor_name: str,
+                          date: datetime | None = None) -> pd.DataFrame:
     """
     Применяет настройки парсинга к исходному DataFrame и возвращает отфильтрованный DataFrame.
 
@@ -45,11 +51,17 @@ def apply_parser_settings(df_original: pd.DataFrame, settings_file: str) -> pd.D
     Возвращает:
     - df_filtered: DataFrame с колонками, переименованными в роли, только валидные записи
     """
-    with open(settings_file, "r", encoding="utf-8") as f:
-        settings = json.load(f)
+    # with open(settings_file, "r", encoding="utf-8") as f:
+    #     settings = json.load(f)
 
-    header_row = settings["header_row"]
-    roles_mapping = settings["roles_mapping"]  # dict: роль -> исходная колонка
+    if not settings.active:
+        return pd.DataFrame([])
+
+    header_row = settings.header_row
+    roles_mapping = {}
+    for mapping in settings.mappings:
+        roles_mapping.update({mapping.role.name: mapping.column_name})
+    # roles_mapping = settings.roles_mapping  # dict: роль -> исходная колонка
 
     # формируем DataFrame с правильными колонками
     df = df_original.copy()
@@ -102,5 +114,16 @@ def apply_parser_settings(df_original: pd.DataFrame, settings_file: str) -> pd.D
 
     if price_role and price_role in df_filtered.columns:
         df_filtered = df_filtered[df_filtered[price_role].apply(valid_price)]
+
+    df_filtered["Поставщик"] = vendor_name
+    if date is not None:
+        df_filtered["Дата"] = date
+
+    if settings.save_parsed:
+        out_fname = f"{vendor_name} - {settings.name} - {date.strftime('%d.%m.%Y %H:%M')}.xlsx"
+        to_excel_with_role_widths(df_filtered.drop(["Дата"], axis=1), out_fname)
+
+    if not settings.to_common:
+        return pd.DataFrame([])
 
     return df_filtered

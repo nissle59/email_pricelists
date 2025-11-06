@@ -1,7 +1,106 @@
 # crud.py
-from sqlalchemy.exc import NoResultFound
+from datetime import datetime, timedelta
+
+from sqlalchemy import select, update
+from sqlalchemy.exc import NoResultFound, IntegrityError
+from sqlalchemy.orm import selectinload
+
+from models.email import RefFiltersConfigs
 from utils.db import SessionLocal
-from models import Role, Vendor, ParsingConfig, RoleMapping
+from models import Role, Vendor, ParsingConfig, RoleMapping, Filters, Settings, Letter, Attachment
+
+
+def list_email_filters():
+    with SessionLocal() as s:
+        r = s.query(Filters).all()
+        print(r)
+        return s.query(Filters).all()
+
+
+def add_email_filter(filter: Filters):
+    with SessionLocal() as s:
+        s.add(filter)
+        s.commit()
+        s.refresh(filter)
+        return filter
+
+
+def set_email_filter_vendor_id(filter_id: int, vendor_id: int):
+    with SessionLocal() as s:
+        db_filter: Filters = s.query(Filters).filter(Filters.id == filter_id).first()
+        if db_filter:
+            db_filter.vendor_id = vendor_id
+            s.commit()
+            s.refresh(db_filter)
+            return db_filter
+        else:
+            raise NoResultFound("Filter not found")
+
+
+def get_email_filter(filter_id: int):
+    with SessionLocal() as s:
+        return s.query(Filters).filter(Filters.id == filter_id).first()
+
+
+def get_email_filter_by_vendor(vendor_id: int):
+    with SessionLocal() as s:
+        return s.query(Filters).filter(Filters.vendor_id == vendor_id).first()
+
+
+def get_email_filter_by_name(name: str):
+    with SessionLocal() as s:
+        return s.query(Filters).filter(Filters.name == name).first()
+
+
+def update_email_filter(filter_id: int, filter: Filters):
+    with SessionLocal() as s:
+        db_filter: Filters = s.query(Filters).filter(Filters.id == filter_id).first()
+        if db_filter:
+            db_filter.name = filter.name
+            db_filter.subject_contains = filter.subject_contains
+            db_filter.subject_excludes = filter.subject_excludes
+            db_filter.filename_contains = filter.filename_contains
+            db_filter.filename_excludes = filter.filename_excludes
+            db_filter.senders = filter.senders
+            db_filter.extensions = filter.extensions
+            db_filter.active = db_filter.active
+            s.commit()
+            s.refresh(db_filter)
+            return db_filter
+        else:
+            raise NoResultFound("Filter not found")
+
+
+def delete_email_filter(filter_id: int):
+    with SessionLocal() as s:
+        db_filter: Filters = s.query(Filters).filter(Filters.id == filter_id).first()
+        # cfgs: list[ParsingConfig] = ...
+        if db_filter:
+            s.delete(db_filter)
+            s.commit()
+            return True
+        else:
+            raise NoResultFound("Filter not found")
+
+
+def get_settings():
+    with SessionLocal() as s:
+        settings = s.query(Settings).all()
+        return {item.setting: item.value for item in settings}
+
+
+def set_settings(settings: dict):
+    with SessionLocal() as s:
+        for key, value in settings.items():
+            setting = s.query(Settings).filter_by(setting=key).first()
+            if setting:
+                setting.value = value
+            else:
+                setting = Settings(setting=key, value=value)
+                s.add(setting)
+        s.commit()
+        return settings
+
 
 def add_role(name: str, required: bool = False):
     with SessionLocal() as s:
@@ -13,13 +112,16 @@ def add_role(name: str, required: bool = False):
             s.refresh(r)
         return r
 
+
 def list_roles():
     with SessionLocal() as s:
         return s.query(Role).order_by(Role.id).all()
 
+
 def get_role_by_name(name: str):
     with SessionLocal() as s:
         return s.query(Role).filter_by(name=name).first()
+
 
 def add_vendor(name: str):
     with SessionLocal() as s:
@@ -31,58 +133,256 @@ def add_vendor(name: str):
             s.refresh(v)
         return v
 
-def list_vendors():
+
+def list_vendors() -> list[Vendor]:
     with SessionLocal() as s:
         return s.query(Vendor).order_by(Vendor.name).all()
+
+
+def set_vendor_last_load(vendor_id: int, last_load: datetime):
+    with SessionLocal() as s:
+        stmt = update(Vendor).where(Vendor.id == vendor_id).values(last_load=last_load)
+        result = s.execute(stmt)
+        s.commit()
+        if result.rowcount > 0:
+            updated_vendor = s.get(Vendor, vendor_id)
+            return updated_vendor
+        return None
+
 
 def get_vendor_by_name(name: str):
     with SessionLocal() as s:
         return s.query(Vendor).filter_by(name=name).first()
 
-def save_config(config_name: str, vendor_name: str|None, header_row: int, roles_mapping: dict):
+
+def get_vendor_name_by_id(id: int):
+    with SessionLocal() as s:
+        try:
+            return s.query(Vendor).filter_by(id=id).first().name
+        except AttributeError:
+            return ""
+
+
+def get_config_by_name(name: str):
+    with SessionLocal() as s:
+        try:
+            return s.query(ParsingConfig).filter_by(name=name).first()
+        except AttributeError:
+            return None
+
+
+def update_config(id: int, vendor_name: str | None, filename_template: str | None = None):
+    with SessionLocal() as s:
+        config: ParsingConfig = s.query(ParsingConfig).filter_by(id=id).first()
+        if config:
+            if vendor_name:
+                config.vendor_id = get_vendor_by_name(vendor_name).id
+            if filename_template:
+                config.filename_template = filename_template
+            s.commit()
+            s.refresh(config)
+        return config
+
+
+def set_ref_filter_config(filter_id: int, config_id: int):
+    with SessionLocal() as s:
+        ref = RefFiltersConfigs(
+            filter_id=filter_id,
+            config_id=config_id
+        )
+        s.add(ref)
+        s.commit()
+        s.refresh(ref)
+        return ref
+
+
+def save_config(
+        config_name: str,
+        vendor_name: str,
+        roles_mapping: dict | None = None,
+        header_row: int | None = None,
+        filename_pattern: str | None = None,
+        to_common: bool | None = None,
+        active: bool | None = None,
+        save_original: bool | None = None,
+        save_parsed: bool | None = None
+):
     """
     roles_mapping: { role_name: column_name }
-    Если роль не существует — создастся с required=False
+    Если роль не существует — создастся с required=False.
+    Если конфигурация существует, обновляются header_row и mappings при изменении.
     """
     with SessionLocal() as s:
-        # vendor
-        vendor = None
-        if vendor_name:
-            vendor = s.query(Vendor).filter_by(name=vendor_name).first()
-            if not vendor:
-                vendor = Vendor(name=vendor_name)
-                s.add(vendor)
-                s.commit()
-                s.refresh(vendor)
+        # --- 1. Получаем или создаём вендора ---
+        stmt_vendor = select(Vendor).where(Vendor.name == vendor_name)
+        vendor = s.execute(stmt_vendor).scalar_one_or_none()
+        if vendor is None:
+            vendor = Vendor(name=vendor_name)
+            s.add(vendor)
+            s.flush()  # чтобы получить vendor.id
 
-        cfg = s.query(ParsingConfig).filter_by(name=config_name).first()
-        if not cfg:
-            cfg = ParsingConfig(name=config_name, vendor_id=(vendor.id if vendor else None), header_row=header_row)
+        # --- 2. Получаем или создаём ParsingConfig ---
+        stmt_cfg = (
+            select(ParsingConfig)
+            .join(ParsingConfig.vendor)
+            .where(Vendor.name == vendor_name)
+            .where(ParsingConfig.name == config_name)
+        )
+        cfg = s.execute(stmt_cfg).scalar_one_or_none()
+
+        if cfg is None:
+            # создаём новую конфигурацию
+            cfg = ParsingConfig(
+                name=config_name,
+                vendor_id=vendor.id,
+                header_row=header_row,
+                filename_template=None
+            )
+            if header_row is not None:
+                cfg.header_row = header_row
+            if filename_pattern is not None:
+                cfg.filename_template = filename_pattern
+            if active is not None:
+                cfg.active = active
+            if to_common is not None:
+                cfg.to_common = to_common
+            if save_original is not None:
+                cfg.save_original = save_original
+            if save_parsed is not None:
+                cfg.save_parsed = save_parsed
             s.add(cfg)
-            s.commit()
-            s.refresh(cfg)
-        else:
-            # обновляем
-            cfg.header_row = header_row
-            cfg.vendor_id = vendor.id if vendor else None
-            # удалить старые mappings
-            cfg.mappings.clear()
             s.flush()
+            # добавляем mappings ниже (поскольку их не было)
+            existing = {}
+        else:
+            # обновляем header_row и vendor_id при изменении
+            updated = False
+            if cfg.header_row != header_row and header_row is not None:
+                cfg.header_row = header_row
+                updated = True
+            if cfg.filename_template != filename_pattern and filename_pattern is not None:
+                cfg.filename_template = filename_pattern
+                updated = True
+            if cfg.vendor_id != vendor.id:
+                cfg.vendor_id = vendor.id
+                updated = True
 
-        # добавить mappings
-        for role_name, col_name in roles_mapping.items():
-            role = s.query(Role).filter_by(name=role_name).first()
-            if not role:
-                role = Role(name=role_name, required=False)
-                s.add(role)
+            if active is not None:
+                cfg.active = active
+                updated = True
+            if to_common is not None:
+                cfg.to_common = to_common
+                updated = True
+            if save_original is not None:
+                cfg.save_original = save_original
+                updated = True
+            if save_parsed is not None:
+                cfg.save_parsed = save_parsed
+                updated = True
+
+            # подготовим словарь существующих mapping'ов (role_name -> column_name)
+            # обращаемся к cfg.mappings — они могут быть ленивыми, но сессия открыта
+            existing = {m.role.name: m.column_name for m in cfg.mappings}
+
+            # если словари совпадают — не трогаем mappings
+            if existing == roles_mapping or roles_mapping is None:
+                # ничего менять не нужно — завершаем (но всё равно коммитим возможные vendor/header изменения)
+                if updated:
+                    s.add(cfg)
+                s.commit()
+                s.refresh(cfg)
+                return cfg
+
+            # если разные — очистим текущие mapping'и и будем воссоздавать/обновлять
+            # вариант: можно обновлять диффами, но проще и надёжнее — синхронизировать ниже
+            # Не очищаем заранее — синхронизация ниже обновит/создаст/удалит записи.
+            # однако если хочется очистить — можно:
+            # cfg.mappings.clear()
+            # s.flush()
+
+            # --- 3. Синхронизация mappings ---
+            # Подход: для каждой пары role_name, col_name — убедиться, что в БД есть соответствующий RoleMapping.
+            # Также удалим лишние mappings, которые есть в existing, но отсутствуют в roles_mapping.
+        if roles_mapping:
+            role_names_to_keep = set(roles_mapping.keys())
+            existing_role_names = set(existing.keys())
+
+            # Удаляем mappings, которые больше не нужны
+            to_delete = existing_role_names - role_names_to_keep
+            if to_delete:
+                # находим эти mapping'и и удаляем
+                stmt_del = (
+                    select(RoleMapping)
+                    .join(Role)
+                    .where(RoleMapping.config_id == cfg.id)
+                    .where(Role.name.in_(list(to_delete)))
+                )
+                rows = s.execute(stmt_del).scalars().all()
+                for r in rows:
+                    s.delete(r)
                 s.flush()
-                s.refresh(role)
-            mapping = RoleMapping(config_id=cfg.id, role_id=role.id, column_name=col_name)
-            cfg.mappings.append(mapping)
 
+            # Для каждой требуемой роли — обновим или создадим mapping
+            for role_name, col_name in roles_mapping.items():
+                # найдем или создадим Role
+                stmt_role = select(Role).where(Role.name == role_name)
+                role = s.execute(stmt_role).scalar_one_or_none()
+                if role is None:
+                    role = Role(name=role_name, required=False)
+                    s.add(role)
+                    s.flush()  # чтобы получить role.id
+
+                # найдем существующий RoleMapping для (cfg.id, role.id)
+                stmt_map = (
+                    select(RoleMapping)
+                    .where(RoleMapping.config_id == cfg.id)
+                    .where(RoleMapping.role_id == role.id)
+                )
+                mapping = s.execute(stmt_map).scalar_one_or_none()
+
+                if mapping is None:
+                    # создаём новый mapping
+                    try:
+                        mapping = RoleMapping(config_id=cfg.id, role_id=role.id, column_name=col_name)
+                        s.add(mapping)
+                        s.flush()
+                    except IntegrityError:
+                        s.rollback()
+                        # попытка создать еще раз — на случай гонки
+                        mapping = s.execute(stmt_map).scalar_one_or_none()
+                        if mapping is None:
+                            # если всё ещё нет — пробуем вставить напрямую
+                            s.begin()
+                            try:
+                                mapping = RoleMapping(config_id=cfg.id, role_id=role.id, column_name=col_name)
+                                s.add(mapping)
+                                s.flush()
+                            except Exception:
+                                s.rollback()
+                                raise
+                else:
+                    # если найден — обновим column_name при отличии
+                    if mapping.column_name != col_name:
+                        mapping.column_name = col_name
+                        s.add(mapping)
+
+        # --- 4. Финализируем ---
         s.commit()
         s.refresh(cfg)
         return cfg
+
+
+def delete_config(config_id: int):
+    """Удаляет конфигурацию по id"""
+    with SessionLocal() as s:
+        cfg = s.query(ParsingConfig).filter_by(id=config_id).first()
+        if cfg:
+            s.delete(cfg)
+            s.commit()
+            return True
+        else:
+            return False
+
 
 def load_config_by_name(config_name: str):
     """Возвращает dict {'id', 'name', 'vendor', 'header_row', 'roles_mapping'} или None"""
@@ -99,16 +399,52 @@ def load_config_by_name(config_name: str):
             "roles_mapping": roles_map
         }
 
-def list_configs_for_vendor(vendor_name: str):
-    with SessionLocal() as s:
-        v = s.query(Vendor).filter_by(name=vendor_name).first()
-        if not v:
-            return []
-        return s.query(ParsingConfig).filter_by(vendor_id=v.id).all()
+
+def list_configs_for_vendor(vendor_name: str) -> list[ParsingConfig]:
+    with SessionLocal() as session:
+        stmt = (
+            select(ParsingConfig)
+            .join(ParsingConfig.vendor)  # Предполагаем отношение vendor в ParsingConfig
+            .where(Vendor.name == vendor_name)
+            .options(
+                selectinload(ParsingConfig.mappings)
+                .selectinload(RoleMapping.role)
+            )
+        )
+
+        result = session.execute(stmt)
+        return list(result.scalars().all())
+
+
+def list_configs_for_vendor_dict(vendor_name: str) -> dict:
+    configs = list_configs_for_vendor(vendor_name)
+    out = {}
+    for config in configs:
+        d = {}
+        d.update({'header_row': config.header_row})
+        d.update({'pattern': config.filename_template})
+        if config.mappings:
+            d.update({'roles_mapping': {}})
+        for mapping in config.mappings:
+            d['roles_mapping'].update({mapping.role.name: mapping.column_name})
+        out.update({config.id:d})
+    return out
+
 
 def list_all_configs():
     with SessionLocal() as s:
-        return s.query(ParsingConfig).order_by(ParsingConfig.name).all()
+        stmt = (
+            select(ParsingConfig)
+            .join(ParsingConfig.vendor)  # Предполагаем отношение vendor в ParsingConfig
+            .options(
+                selectinload(ParsingConfig.mappings)
+                .selectinload(RoleMapping.role)
+            )
+        )
+
+        result = s.execute(stmt)
+        return list(result.scalars().all())
+
 
 def validate_config(config_name: str):
     """
@@ -126,3 +462,50 @@ def validate_config(config_name: str):
             if r.name not in mapped_role_names:
                 missing.append(r.name)
         return (len(missing) == 0), missing
+
+
+def add_letter(letter: Letter):
+    with SessionLocal() as s:
+        s.add(letter)
+        s.commit()
+        s.refresh(letter)
+        return letter.id
+
+
+def list_letters(vendor_id: int | None = None, days: int | None = None):
+    with SessionLocal() as s:
+        q = (
+            s.query(Letter)
+            .options(selectinload(Letter.attachments))
+        )
+        if vendor_id:
+            q = q.filter(Letter.vendor_id == vendor_id)
+        if days is not None:
+            since_date = datetime.now() - timedelta(days=days)
+            q = q.filter(Letter.date >= since_date)
+        return q.all()
+
+
+def find_attachment_by_filename(filename: str):
+    with SessionLocal() as s:
+        return s.query(Attachment).filter(Attachment.file_name == filename).first()
+
+
+def list_letters_email_ids():
+    with SessionLocal() as s:
+        return [l[0] for l in s.query(Letter.letter_id).all()]
+
+
+def add_attachment(attachment: Attachment):
+    with SessionLocal() as s:
+        s.add(attachment)
+        s.commit()
+        s.refresh(attachment)
+        return attachment.id
+
+
+def list_attachments_by_vendor(vendor_id: int):
+    with SessionLocal() as s:
+        letters = s.query(Letter).options(selectinload(Letter.attachments)).filter(Letter.vendor_id == vendor_id).all()
+        attachments = [a for l in letters for a in l.attachments]
+        return attachments

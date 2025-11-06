@@ -1,90 +1,37 @@
 import re
 import pandas as pd
-import json
 import ttkbootstrap as ttk
 from ttkbootstrap.constants import *
 from ttkbootstrap.toast import ToastNotification
 from functools import partial
 from pathlib import Path
-from tkinter import filedialog, messagebox, simpledialog
+from tkinter import filedialog, simpledialog
 
 import crud
 import utils.db
 from utils.convert_df import to_excel_with_role_widths
+from utils.file_reader import read_excel_safe
+from utils.stock_normalizer import normalize_stock_value
 
 utils.db.init_db()
 
-# FILE_PATH = Path("sources/archive/Прайс-лист_АО_МЕГАЛАЙТ_для_ИП Бакулин Игорь Юрьевич (20).xlsx")  # сюда подставляй свой путь к файлу
-SETTINGS_CONFIG_NAME = "Базовый"
 
-
-def read_excel_safe(file_path):
-    # Сначала пробуем стандартный openpyxl
-    try:
-        df = pd.read_excel(file_path, header=None)
-        return df
-    except KeyError as e:
-        print(f"openpyxl не смог прочитать файл: {e}")
-        # Если есть Excel на машине (Windows/Mac), используем xlwings
-        try:
-            import xlwings as xw
-            print("Пробуем через xlwings...")
-            app = xw.App(visible=False)
-            wb = xw.Book(file_path)
-            sheet = wb.sheets[0]  # читаем первый лист
-            data = sheet.used_range.value
-            wb.close()
-            app.quit()
-            df = pd.DataFrame(data)
-            return df
-        except Exception as e2:
-            print(f"Не удалось прочитать через xlwings: {e2}")
-            raise
-
-
-def normalize_stock_value(value):
-    """
-    Приводит значение остатка к единому числовому формату.
-    Обрабатывает случаи: '>50', 'БОЛЕЕ50', '50+', '~50', 'около 50' и т.д.
-    """
-    if pd.isna(value):
-        return 0
-
-    # Если уже число - возвращаем как есть
-    if isinstance(value, (int, float)):
-        return int(value)
-
-    value_str = str(value).strip().upper()
-
-    # Убираем лишние символы и слова
-    value_str = re.sub(r'[БОЛЕЕ|БОЛЬШЕ|ОКОЛО|ПРИМЕРНО|~|ПРИБЛИЗИТЕЛЬНО]', '', value_str, flags=re.IGNORECASE)
-    value_str = value_str.replace(' ', '')
-
-    # Ищем числа в строке
-    numbers = re.findall(r'\d+', value_str)
-
-    if numbers:
-        # Берем первое найденное число
-        stock_value = int(numbers[0])
-
-        # Если есть знаки ">" или "+" - добавляем маркер того, что это минимальное значение
-        if any(symbol in value_str for symbol in ['>', '+', '≥']):
-            return f"{stock_value}+"  # Или можно вернуть просто stock_value, если нужны только цифры
+class PriceParserApp(ttk.Toplevel):
+    def __init__(self, parent=None, vendor=None, file_in=None, file_prefix: str = "", config_name: str | None = None):
+        if parent is None:
+            self.parent = ttk.Window(title="Парсер цен")
         else:
-            return stock_value
-    else:
-        # Если чисел нет, проверяем текстовые обозначения
-        if any(word in value_str for word in ['ЕСТЬ', 'ВНАЛИЧИИ', 'ДА', 'YES', '++']):
-            return 1  # или "Есть"
-        elif any(word in value_str for word in ['НЕТ', 'НЕТВНАЛИЧИИ', 'НЕТВ', 'ОТСУТСТВУЕТ', 'NO', '--', '---']):
-            return 0
-        else:
-            return 0  # По умолчанию 0 для неизвестных форматов
+            self.parent = parent
 
-
-class PriceParserApp(ttk.Window):
-    def __init__(self, vendor=None, file_in=None, file_prefix: str = "", config_name: str | None = None):
-        super().__init__(title="Парсер прайс-листов", themename="flatly", size=(1200, 750))
+        print(file_in)
+        super().__init__(self.parent)
+        self.geometry("1200x800")
+        self.resizable(True, True)
+        # Центрируем окно парсера
+        self.update_idletasks()
+        x = (self.winfo_screenwidth() - self.winfo_width()) // 2
+        y = (self.winfo_screenheight() - self.winfo_height()) // 2
+        self.geometry(f"+{x}+{y}")
 
         # Если не переданы vendor и file_in, показываем окно выбора
         if vendor is None or file_in is None:
@@ -98,12 +45,12 @@ class PriceParserApp(ttk.Window):
         for w in self.winfo_children():
             w.destroy()
 
-        self.geometry("600x400")
+        self.parent.geometry("600x400")
         # Центрируем окно
         self.update_idletasks()
         x = (self.winfo_screenwidth() - self.winfo_width()) // 2
         y = (self.winfo_screenheight() - self.winfo_height()) // 2
-        self.geometry(f"+{x}+{y}")
+        self.parent.geometry(f"+{x}+{y}")
 
         # Заголовок
         ttk.Label(self, text="Выберите файл прайс-листа и поставщика",
@@ -153,7 +100,7 @@ class PriceParserApp(ttk.Window):
 
         # Кнопка выхода
         ttk.Button(self, text="Выход", bootstyle=DANGER,
-                   command=self.destroy).pack(pady=10)
+                   command=self.parent.destroy).pack(pady=10)
 
         # Связываем проверку состояния кнопки
         self.file_path_var.trace('w', self._check_start_conditions)
@@ -171,7 +118,7 @@ class PriceParserApp(ttk.Window):
         """Выбор файла через диалоговое окно"""
         file_path = filedialog.askopenfilename(
             title="Выберите файл прайс-листа",
-            filetypes=[("Excel files", "*.xlsx *.xls"), ("All files", "*.*")]
+            filetypes=[("Excel files", "*.xlsx *.xls *.xlsm *xlsb"), ("All files", "*.*")]
         )
         if file_path:
             self.file_path_var.set(file_path)
@@ -191,6 +138,7 @@ class PriceParserApp(ttk.Window):
             vendor_names = [vendor.name for vendor in vendors]
             self.vendor_combobox['values'] = vendor_names
             self.vendor_combobox.set(vendor_name)
+            self._check_start_conditions()
 
     def _check_start_conditions(self, *args):
         """Проверяет, можно ли запускать парсинг"""
@@ -205,17 +153,19 @@ class PriceParserApp(ttk.Window):
     def _initialize_app(self, vendor, file_in, file_prefix: str = "", config_name: str | None = None):
         """Инициализирует основное приложение с переданными параметрами"""
 
-        self.geometry("1200x750")
+        self.parent.geometry("1200x750")
         self.update_idletasks()
         x = (self.winfo_screenwidth() - self.winfo_width()) // 2
         y = (self.winfo_screenheight() - self.winfo_height()) // 2
-        self.geometry(f"+{x}+{y}")
+        self.parent.geometry(f"+{x}+{y}")
 
         self.file_path = Path(file_in)
         self.output_file = Path(Path(file_prefix) / Path(self.file_path.stem + '.xlsx'))
         self.config_name = config_name
-        if not config_name:
-            self.config_name = f"Базовый [{vendor}]"
+        # if not config_name:
+        #     self.config_name = f"Единый [{vendor}]"
+        # else:
+        #     self.config_name = f"{config_name} [{vendor}]"
 
         crud.add_role("Наименование", required=True)
         crud.add_role("Закупочная цена", required=True)
@@ -626,11 +576,11 @@ class PriceParserApp(ttk.Window):
                                      command=self._auto_assign_roles_ui)
         btn_auto_assign.pack(side=LEFT, padx=(10, 0))
 
-        btn_quick_save = ttk.Button(buttons_frame, text="Быстрое сохранение", bootstyle=WARNING,
+        btn_quick_save = ttk.Button(buttons_frame, text="Сохраненить результат в файл", bootstyle=WARNING,
                                     command=self._quick_save)
         btn_quick_save.pack(side=LEFT, padx=(10, 0))
 
-        btn_save = ttk.Button(buttons_frame, text="Сохранить настройки", bootstyle=SUCCESS,
+        btn_save = ttk.Button(buttons_frame, text="Сохранить настройки и закрыть окно", bootstyle=SUCCESS,
                               command=self._save_roles)
         btn_save.pack(side=LEFT, padx=(10, 0))
 
@@ -941,9 +891,10 @@ class PriceParserApp(ttk.Window):
             header_row=self.header_row,
             roles_mapping=mapping
         )
-        to_excel_with_role_widths(self.df_filtered, self.output_file)
-        ToastNotification(title="Сохранено", message=f"Настройки записаны в БД",
+        #to_excel_with_role_widths(self.df_filtered, self.output_file)
+        ToastNotification(title="Сохранено", message=f"Настройки для {self.VENDOR} записаны в БД",
                           bootstyle=SUCCESS).show_toast()
+        self.destroy()
         return self.df_filtered
 
     # ----------------- быстрое сохранение -----------------

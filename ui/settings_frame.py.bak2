@@ -1,0 +1,371 @@
+from typing import Self, TYPE_CHECKING
+import ttkbootstrap as ttk
+from ttkbootstrap.constants import *
+from ttkbootstrap.toast import ToastNotification
+from ttkbootstrap.scrolled import ScrolledFrame
+import json
+
+from ui.parser_config_dialog import ParserConfigWindow
+
+if TYPE_CHECKING:
+    from ui.gui import App
+
+
+class EmailSettingsFrame(ttk.Frame):
+    def __init__(self, parent):
+        super().__init__(parent)
+        self.pack(fill=BOTH, expand=YES, padx=10, pady=10)
+        self._create_widgets()
+
+    def _create_widgets(self):
+        # Заголовок
+        ttk.Label(
+            self,
+            text="Настройки подключения к почте",
+            font=("Helvetica", 14, "bold")
+        ).pack(anchor=W, pady=(0, 15))
+
+        # Основной контейнер
+        container = ttk.Frame(self)
+        container.pack(fill=X, padx=5)
+
+        # Логин (email)
+        ttk.Label(container, text="Логин (email):", width=20).grid(row=0, column=0, sticky=W, pady=5)
+        self.email_var = ttk.StringVar(value="")
+        email_entry = ttk.Entry(container, textvariable=self.email_var, width=30)
+        email_entry.grid(row=0, column=1, sticky=W, pady=5, padx=(0, 10))
+
+        # Пароль
+        ttk.Label(container, text="Пароль:", width=20).grid(row=1, column=0, sticky=W, pady=5)
+        self.password_var = ttk.StringVar(value="")
+        password_entry = ttk.Entry(container, textvariable=self.password_var, show="*", width=30)
+        password_entry.grid(row=1, column=1, sticky=W, pady=5, padx=(0, 10))
+
+        # IMAP сервер
+        ttk.Label(container, text="IMAP сервер:", width=20).grid(row=2, column=0, sticky=W, pady=5)
+        self.imap_var = ttk.StringVar(value="imap.yandex.ru")
+        imap_entry = ttk.Entry(container, textvariable=self.imap_var, width=30)
+        imap_entry.grid(row=2, column=1, sticky=W, pady=5, padx=(0, 10))
+
+        # Порт
+        ttk.Label(container, text="Порт:", width=20).grid(row=3, column=0, sticky=W, pady=5)
+        self.port_var = ttk.StringVar(value="993")
+        port_entry = ttk.Entry(container, textvariable=self.port_var, width=30)
+        port_entry.grid(row=3, column=1, sticky=W, pady=5, padx=(0, 10))
+
+        # Кнопки
+        btn_frame = ttk.Frame(container)
+        btn_frame.grid(row=4, column=0, columnspan=2, pady=15, sticky=W)
+
+        ttk.Button(
+            btn_frame,
+            text="Сохранить настройки",
+            bootstyle=SUCCESS,
+            command=self._save_email_settings
+        ).pack(side=LEFT, padx=(0, 10))
+
+        ttk.Button(
+            btn_frame,
+            text="Проверить подключение",
+            bootstyle=INFO,
+            command=self._test_connection
+        ).pack(side=LEFT)
+
+    def _save_email_settings(self):
+        settings = {
+            'email': self.email_var.get(),
+            'imap_server': self.imap_var.get(),
+            'port': self.port_var.get()
+        }
+        # Здесь будет сохранение в БД или файл
+        ToastNotification(
+            title="Сохранено",
+            message="Настройки почты сохранены",
+            bootstyle=SUCCESS
+        ).show_toast()
+
+    def _test_connection(self):
+        # Здесь будет тестирование подключения
+        ToastNotification(
+            title="Проверка подключения",
+            message="Функция в разработке",
+            bootstyle=INFO
+        ).show_toast()
+
+
+class FilterRuleFrame(ttk.Frame):
+    def __init__(self, parent, rule_data=None):
+        super().__init__(parent)
+        self.rule_data = rule_data or {}
+        self._create_widgets()
+
+    def _create_widgets(self):
+        # Основные настройки правила
+        main_frame = ttk.Frame(self)
+        main_frame.pack(fill=X, pady=5)
+
+        # Email отправителя
+        ttk.Label(main_frame, text="Email отправителя:", width=15).grid(row=0, column=0, sticky=W, pady=2)
+        self.sender_var = ttk.StringVar(value=self.rule_data.get('sender', ''))
+        sender_entry = ttk.Entry(main_frame, textvariable=self.sender_var, width=25)
+        sender_entry.grid(row=0, column=1, sticky=W, pady=2, padx=5)
+
+        # Условия для темы
+        ttk.Label(main_frame, text="Тема содержит:", width=15).grid(row=1, column=0, sticky=W, pady=2)
+        self.subject_var = ttk.StringVar(value=self.rule_data.get('subject_contains', ''))
+        subject_entry = ttk.Entry(main_frame, textvariable=self.subject_var, width=25)
+        subject_entry.grid(row=1, column=1, sticky=W, pady=2, padx=5)
+
+        # Расширения файлов
+        ttk.Label(main_frame, text="Расширения:", width=15).grid(row=2, column=0, sticky=W, pady=2)
+        self.extensions_var = ttk.StringVar(value=self.rule_data.get('extensions', '.xlsx,.xls,.xlsm'))
+        extensions_entry = ttk.Entry(main_frame, textvariable=self.extensions_var, width=25)
+        extensions_entry.grid(row=2, column=1, sticky=W, pady=2, padx=5)
+
+        # Имя файла содержит
+        ttk.Label(main_frame, text="Имя файла содержит:", width=15).grid(row=3, column=0, sticky=W, pady=2)
+        self.filename_contains_var = ttk.StringVar(value=self.rule_data.get('filename_contains', ''))
+        filename_entry = ttk.Entry(main_frame, textvariable=self.filename_contains_var, width=25)
+        filename_entry.grid(row=3, column=1, sticky=W, pady=2, padx=5)
+
+        # Имя файла НЕ содержит
+        ttk.Label(main_frame, text="Имя файла НЕ содержит:", width=15).grid(row=4, column=0, sticky=W, pady=2)
+        self.filename_excludes_var = ttk.StringVar(value=self.rule_data.get('filename_excludes', ''))
+        filename_ex_entry = ttk.Entry(main_frame, textvariable=self.filename_excludes_var, width=25)
+        filename_ex_entry.grid(row=4, column=1, sticky=W, pady=2, padx=5)
+
+        # Принимать все вложения
+        self.accept_all_var = ttk.BooleanVar(value=self.rule_data.get('accept_all', False))
+        accept_all_cb = ttk.Checkbutton(
+            main_frame,
+            text="Принимать все вложения (игнорировать фильтры)",
+            variable=self.accept_all_var,
+            command=self._toggle_filters
+        )
+        accept_all_cb.grid(row=5, column=0, columnspan=2, sticky=W, pady=5)
+
+        # Кнопки действия
+        btn_frame = ttk.Frame(main_frame)
+        btn_frame.grid(row=6, column=0, columnspan=2, pady=5, sticky=W)
+
+        ttk.Button(
+            btn_frame,
+            text="Настройки парсера",
+            bootstyle=SECONDARY,
+            command=self._configure_parser
+        ).pack(side=LEFT, padx=(0, 10))
+
+        ttk.Button(
+            btn_frame,
+            text="Удалить",
+            bootstyle=DANGER,
+            command=self._delete_rule
+        ).pack(side=LEFT)
+
+        self._toggle_filters()
+
+    def _toggle_filters(self):
+        state = NORMAL if not self.accept_all_var.get() else DISABLED
+        widgets = [
+            self.subject_var, self.extensions_var,
+            self.filename_contains_var, self.filename_excludes_var
+        ]
+        # Здесь нужно отключить соответствующие виджеты
+        # В реальной реализации нужно получить ссылки на виджеты Entry
+
+    def _configure_parser(self):
+        """Открывает окно настройки конфигураций парсера для этого правила"""
+        sender_email = self.sender_var.get()
+        if not sender_email:
+            ToastNotification(
+                title="Ошибка",
+                message="Сначала укажите email отправителя",
+                bootstyle=DANGER
+            ).show_toast()
+            return
+
+        # Собираем данные правила
+        rule_data = {
+            'sender': sender_email,
+            'subject_contains': self.subject_var.get(),
+            'extensions': self.extensions_var.get(),
+            'filename_contains': self.filename_contains_var.get(),
+            'filename_excludes': self.filename_excludes_var.get(),
+            'accept_all': self.accept_all_var.get()
+        }
+
+        print(f"Открываем окно конфигураций для: {sender_email}")  # Отладочное сообщение
+
+        # Открываем окно конфигураций
+        config_window = ParserConfigWindow(self, sender_email, rule_data)
+
+        # Делаем окно модальным
+        config_window.transient(self)
+        config_window.grab_set()
+        self.wait_window(config_window)
+
+    def _delete_rule(self):
+        # Удаление этого правила
+        self.destroy()
+
+
+class FilterSettingsFrame(ttk.Frame):
+    def __init__(self, parent):
+        super().__init__(parent)
+        self.pack(fill=BOTH, expand=YES, padx=10, pady=10)
+        self.filter_rules = []
+        self._create_widgets()
+        self._load_default_rules()
+
+    def _create_widgets(self):
+        # Заголовок и кнопка добавления
+        header_frame = ttk.Frame(self)
+        header_frame.pack(fill=X, pady=(0, 15))
+
+        ttk.Label(
+            header_frame,
+            text="Фильтрация входящих писем",
+            font=("Helvetica", 14, "bold")
+        ).pack(side=LEFT, anchor=W)
+
+        ttk.Button(
+            header_frame,
+            text="+ Добавить правило",
+            bootstyle=SUCCESS,
+            command=self._add_new_rule
+        ).pack(side=RIGHT)
+
+        # Прокручиваемая область для правил
+        self.scrolled_frame = ScrolledFrame(self, height=400)
+        self.scrolled_frame.pack(fill=BOTH, expand=YES)
+
+    def _load_default_rules(self):
+        """Загружает примеры боевых правил"""
+        default_rules = [
+            {
+                'sender': 'kormiltsev@technosite.ru',
+                'extensions': '.xlsx',
+                'filename_excludes': 'внешний заказ',
+                'subject_contains': 'прайс'
+            },
+            {
+                'sender': 'khanova@technosite.ru',
+                'subject_contains': 'прайс',
+                'extensions': '.xlsx,.xls,.xlsm'
+            },
+            {
+                'sender': 'jtc2@autoopt.ru',
+                'subject_contains': 'прайс лист',
+                'extensions': '.xlsx,.xls,.xlsm'
+            },
+            {
+                'sender': 'E.Maltseva@igr.ru',
+                'extensions': '.xlsx,.xls,.xlsm',
+                'accept_all': True
+            },
+            {
+                'sender': 'Kadyrmaeva@toys.inventive.ru',
+                'subject_contains': 'прайс,новинки,предложение',
+                'extensions': '.xlsm,.xls,.xlsx'
+            },
+            {
+                'sender': 'order@mactak.ru',
+                'subject_contains': 'прайс-лист',
+                'extensions': '.xlsx,.xls,.xlsm'
+            },
+            {
+                'sender': '1c_mail@1toys.ru',
+                'accept_all': True
+            },
+            {
+                'sender': 'sale@megalight.ru',
+                'accept_all': True
+            }
+        ]
+
+        for rule_data in default_rules:
+            self._add_rule_frame(rule_data)
+
+    def _add_new_rule(self):
+        """Добавляет новое пустое правило"""
+        self._add_rule_frame({})
+
+    def _add_rule_frame(self, rule_data):
+        """Добавляет фрейм правила в список"""
+        rule_frame = FilterRuleFrame(self.scrolled_frame, rule_data)
+        rule_frame.pack(fill=X, pady=5, padx=5)
+        self.filter_rules.append(rule_frame)
+
+        # Разделитель
+        separator = ttk.Separator(self.scrolled_frame, orient=HORIZONTAL)
+        separator.pack(fill=X, pady=2)
+
+    def save_filters(self):
+        """Сохраняет все фильтры"""
+        filters_data = []
+        for rule_frame in self.filter_rules:
+            if rule_frame.winfo_exists():  # Проверяем, что фрейм еще существует
+                rule_data = {
+                    'sender': rule_frame.sender_var.get(),
+                    'subject_contains': rule_frame.subject_var.get(),
+                    'extensions': rule_frame.extensions_var.get(),
+                    'filename_contains': rule_frame.filename_contains_var.get(),
+                    'filename_excludes': rule_frame.filename_excludes_var.get(),
+                    'accept_all': rule_frame.accept_all_var.get()
+                }
+                filters_data.append(rule_data)
+
+        # Здесь будет сохранение в БД
+        ToastNotification(
+            title="Сохранено",
+            message=f"Сохранено {len(filters_data)} правил фильтрации",
+            bootstyle=SUCCESS
+        ).show_toast()
+
+
+def launch_price_parser():
+    """Запускает парсер в дочернем окне с сохранением стилей"""
+    from parser import PriceParserApp
+    ToastNotification(
+        title="Запуск парсера",
+        message="Парсер цен запускается...",
+        duration=2000
+    ).show_toast()
+    ps = PriceParserApp(parent=ttk.Toplevel(title="Парсер цен"))
+
+
+def create_settings_frame(self, notebook):
+    tab_settings = ttk.Frame(notebook)
+    notebook.add(tab_settings, text="⚙️ Настройки")
+
+    # Создаем Notebook для разделов настроек
+    settings_notebook = ttk.Notebook(tab_settings)
+    settings_notebook.pack(fill=BOTH, expand=YES, padx=10, pady=10)
+
+    # Вкладка настроек почты
+    email_tab = ttk.Frame(settings_notebook)
+    settings_notebook.add(email_tab, text="📧 Настройки почты")
+    EmailSettingsFrame(email_tab)
+
+    # Вкладка фильтрации
+    filter_tab = ttk.Frame(settings_notebook)
+    settings_notebook.add(filter_tab, text="🔍 Фильтрация писем")
+    filter_frame = FilterSettingsFrame(filter_tab)
+
+    # Кнопка сохранения всех настроек
+    bottom_frame = ttk.Frame(tab_settings)
+    bottom_frame.pack(fill=X, padx=10, pady=10)
+
+    ttk.Button(
+        bottom_frame,
+        text="Сохранить все настройки",
+        bootstyle=SUCCESS,
+        command=filter_frame.save_filters
+    ).pack(side=RIGHT, padx=(10, 0))
+
+    ttk.Button(
+        bottom_frame,
+        text="Запустить парсер",
+        bootstyle=PRIMARY,
+        command=launch_price_parser
+    ).pack(side=RIGHT)
