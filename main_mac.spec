@@ -38,7 +38,7 @@ a = Analysis(
     hooksconfig={},
     runtime_hooks=[],
     excludes=[],
-    noarchive=False,
+    noarchive=True,
 )
 
 pyz = PYZ(a.pure)
@@ -63,7 +63,7 @@ app = BUNDLE(
     exe,
     name='Pricelist.app',
     icon=app_icon,
-    bundle_identifier='com.yourcompany.pricelist',
+    bundle_identifier='com.nissle.pricelist',
     info_plist={
         'CFBundleDisplayName': 'Pricelist',
         'CFBundleName': 'Pricelist',

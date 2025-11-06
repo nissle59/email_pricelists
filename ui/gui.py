@@ -18,7 +18,7 @@ class App(ttk.Window):
         )
         s = get_settings()
         print(s)
-        self.email_client = YandexIMAPClient(s['email_username'], s['email_password'])
+        self.email_client = YandexIMAPClient(s.get('email_username'), s.get('email_password'))
         self.create_tabs()
 
     def create_tabs(self):
@@ -28,7 +28,7 @@ class App(ttk.Window):
         MainFrame(notebook)
         #create_main_frame(self, notebook)
         create_settings_frame(self, notebook)
-        create_about_frame(self, notebook)
+        #create_about_frame(self, notebook)
 
     def change_theme(self):
         new_theme = self.theme_var.get()

@@ -13,3 +13,5 @@ typing_extensions==4.15.0
 tzdata==2025.2
 xlwings==0.33.16
 pyinstaller
+python-calamine==0.5.4
+alembic==1.17.1

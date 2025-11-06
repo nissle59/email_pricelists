@@ -238,7 +238,7 @@ class FilterSettingsFrame(ttk.Frame):
         ).pack(side=RIGHT)
 
         # Создаем заголовки таблицы
-        self._create_table_headers()
+        # self._create_table_headers()
 
         # Прокручиваемая область для правил
         self.scrolled_frame = ScrolledFrame(self, height=400)
@@ -371,9 +371,9 @@ def create_settings_frame(self, notebook):
         command=filter_frame.save_filters
     ).pack(side=RIGHT, padx=(10, 0))
 
-    ttk.Button(
-        bottom_frame,
-        text="Запустить парсер",
-        bootstyle=PRIMARY,
-        command=launch_price_parser
-    ).pack(side=RIGHT)
+    # ttk.Button(
+    #     bottom_frame,
+    #     text="Запустить парсер",
+    #     bootstyle=PRIMARY,
+    #     command=launch_price_parser
+    # ).pack(side=RIGHT)

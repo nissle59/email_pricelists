@@ -73,19 +73,19 @@ class MainFrame:
         suppliers_controls = ttk.Frame(suppliers_frame)
         suppliers_controls.pack(fill=X, pady=(0, 10))
 
-        ttk.Button(
-            suppliers_controls,
-            text="Выбрать всех",
-            bootstyle="success-outline",
-            command=self.select_all_suppliers
-        ).pack(side=LEFT, padx=(0, 5))
-
-        ttk.Button(
-            suppliers_controls,
-            text="Снять выделение",
-            bootstyle="warning-outline",
-            command=self.deselect_all_suppliers
-        ).pack(side=LEFT, padx=(0, 5))
+        # ttk.Button(
+        #     suppliers_controls,
+        #     text="Выбрать всех",
+        #     bootstyle="success-outline",
+        #     command=self.select_all_suppliers
+        # ).pack(side=LEFT, padx=(0, 5))
+        #
+        # ttk.Button(
+        #     suppliers_controls,
+        #     text="Снять выделение",
+        #     bootstyle="warning-outline",
+        #     command=self.deselect_all_suppliers
+        # ).pack(side=LEFT, padx=(0, 5))
 
         # Таблица поставщиков
         columns = [
@@ -186,26 +186,26 @@ class MainFrame:
         buttons_frame = ttk.Frame(config_frame)
         buttons_frame.pack(fill=X, pady=(10, 0))
 
-        ttk.Button(
-            buttons_frame,
-            text="✏️ Редактировать конфигурацию",
-            bootstyle="primary",
-            command=self.edit_config
-        ).pack(side=LEFT, padx=(0, 5))
-
-        ttk.Button(
-            buttons_frame,
-            text="🔄 Применить изменения",
-            bootstyle="success",
-            command=self.apply_config_changes
-        ).pack(side=LEFT, padx=(0, 5))
-
-        ttk.Button(
-            buttons_frame,
-            text="➕ Новая конфигурация",
-            bootstyle="info",
-            command=self.create_new_config
-        ).pack(side=LEFT, padx=(0, 5))
+        # ttk.Button(
+        #     buttons_frame,
+        #     text="✏️ Редактировать конфигурацию",
+        #     bootstyle="primary",
+        #     command=self.edit_config
+        # ).pack(side=LEFT, padx=(0, 5))
+        #
+        # ttk.Button(
+        #     buttons_frame,
+        #     text="🔄 Применить изменения",
+        #     bootstyle="success",
+        #     command=self.apply_config_changes
+        # ).pack(side=LEFT, padx=(0, 5))
+        #
+        # ttk.Button(
+        #     buttons_frame,
+        #     text="➕ Новая конфигурация",
+        #     bootstyle="info",
+        #     command=self.create_new_config
+        # ).pack(side=LEFT, padx=(0, 5))
 
         # Кнопка запуска парсинга
         ttk.Button(

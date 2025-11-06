@@ -949,8 +949,8 @@ def custom_search_example():
 
 s = settings.get_settings()
 
-client = YandexIMAPClient(s.get('email_username'), s.get('email_password'), s.get('email_server'),
-                          int(s.get('email_port')))
+client = YandexIMAPClient(s.get('email_username'), s.get('email_password'), s.get('email_server', 'imap.yandex.ru'),
+                          int(s.get('email_port', 993)))
 
 if __name__ == "__main__":
     custom_search_example()
