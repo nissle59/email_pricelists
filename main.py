@@ -1,8 +1,8 @@
-from parser import PriceParserApp
+import os
+
 from ui.gui import App
 
 if __name__ == "__main__":
-    #part_app = PriceParserApp()
-    #part_app.mainloop()
+    os.makedirs("attachments", exist_ok=True)
     app = App()
     app.mainloop()
