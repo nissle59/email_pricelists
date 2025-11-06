@@ -891,61 +891,6 @@ class YandexIMAPClient:
                 self.disconnect()
 
 
-# Примеры использования
-def main():
-    # Настройки (замените на свои)
-    EMAIL = "inaberu@yandex.ru"
-    PASSWORD = "nmbknebkhqadsdzs"
-
-    # Создание клиента
-    client = YandexIMAPClient(EMAIL, PASSWORD)
-
-    if client.connect():
-        try:
-            # ВАРИАНТ 1: Не отмечать письма как прочитанные (по умолчанию)
-            client.set_mark_as_read_on_download(True)
-
-            # Выбор папки входящие
-            client.select_folder("INBOX")
-
-            # Пример 1: Скачать Excel файлы без отметки как прочитанных
-            print("=== Пример 1: Без отметки как прочитанных ===")
-            results1 = client.download_all_excel_files(limit=5)
-
-            # ВАРИАНТ 2: Отмечать письма как прочитанные только при успешном скачивании
-            print("\n=== Пример 2: С отметкой как прочитанных при скачивании ===")
-            client.set_mark_as_read_on_download(True)
-            results2 = client.download_all_excel_files(limit=5, unread_only=True)
-
-        except Exception as e:
-            print(f"Общая ошибка: {e}")
-        finally:
-            client.disconnect()
-
-
-def custom_search_example():
-    """Пример кастомного поиска с гибким управлением отметкой прочитанных"""
-    EMAIL = "inaberu@yandex.ru"
-    PASSWORD = "nmbknebkhqadsdzs"
-    """
-- от email kormiltsev@technosite.ru берём вложения с расширением xlsx, в именах которых не содержится 'внешний заказ', либо вложение с любым расширением, если в его имени, либо теме содержится подстрока 'прайс'
-- от khanova@technosite.ru берем вложения, только если в теме письма содержится подстрока 'прайс'
-- от jtc2@autoopt.ru берем вложения, только если в теме письма есть подстрока 'прайс лист'
-- от E.Maltseva@igr.ru берем все excel вложения
-- от Kadyrmaeva@toys.inventive.ru берем все .xlsm/.xls/.xlsx, если в теме письма есть 'прайс' или 'новинки' или 'предложение'
-- от order@mactak.ru берем вложения, если в теме письма есть 'прайс-лист'
-- от 1c_mail@1toys.ru берем все вложения - эти ребята в фильтрации не нуждаются
-- от sale@megalight.ru берем все вложения - фильтрация не нужна
-    """
-    client = YandexIMAPClient(EMAIL, PASSWORD)
-
-    if client.connect():
-        try:
-            s = client.get_prices_by_senders(senders=["khanova@technosite.ru"], days=1, folder='temp')
-        finally:
-            client.disconnect()
-
-
 
 s = settings.get_settings()
 
