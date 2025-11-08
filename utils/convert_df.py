@@ -254,7 +254,7 @@ def apply_parser_settings(df_original: pd.DataFrame, settings: ParsingConfig, ve
         df_filtered["Дата"] = date
 
     if settings.save_parsed:
-        out_fname = f"{vendor_name} - {settings.name} - {date.strftime('%d.%m.%Y %H:%M')}.xlsx"
+        out_fname = f"{vendor_name} - {settings.name} - {date.strftime('%d.%m.%Y %H-%M')}.xlsx"
         to_excel_with_role_widths(df_filtered.drop(["Дата"], axis=1), pm.get_executable_dir_path(out_fname))
 
     if not settings.to_common:

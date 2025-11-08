@@ -111,6 +111,9 @@ def parse(out_file: str = "price.xlsx", days=7):
 
     out_dfs = []
     for vendor in vendors:
+        if not vendor.active:
+            print(f"Парсинг поставщика {vendor.name} отключен")
+            continue
         emailfilter = crud.get_email_filter_by_vendor(vendor.id)
         emails_instances = crud.list_letters(vendor.id, days=days)
         emails = [
@@ -131,7 +134,7 @@ def parse(out_file: str = "price.xlsx", days=7):
             cfg_id = find_matching_config(letter.get('filename'), configs)
             if cfg_id is not None:
                 config_obj = next((c for c in configs if c.id == cfg_id), None)
-                out_fname = f"[исходный] {vendor.name} - {config_obj.name} - {letter_date.strftime('%d.%m.%Y %H:%M')}.xlsx"
+                out_fname = f"[исходный] {vendor.name} - {config_obj.name} - {letter_date.strftime('%d.%m.%Y %H-%M')}.xlsx"
                 if config_obj.save_original:
                     try:
                         source_path = letter.get('filepath')

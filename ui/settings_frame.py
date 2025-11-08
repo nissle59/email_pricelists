@@ -164,11 +164,11 @@ class FilterRuleRow(ttk.Frame):
 
         ttk.Button(
             btn_frame,
-            text="Парсер",
-            bootstyle=SECONDARY,
+            text="Настроить",
+            bootstyle=PRIMARY,
             command=self._configure_parser,
             width=8
-        ).pack(side=LEFT, padx=(0, 2))
+        ).pack(side=LEFT)
 
         ttk.Button(
             btn_frame,
@@ -177,10 +177,24 @@ class FilterRuleRow(ttk.Frame):
             command=self._delete_rule,
             width=8
         ).pack(side=LEFT)
+        vendor_active = self.rd_raw.vendor.active
+        self.toggle_btn_var = ttk.StringVar(value="Отключить" if vendor_active else "Включить")
+        self.toggle_btn = ttk.Button(
+            btn_frame,
+            textvariable=self.toggle_btn_var,
+            bootstyle=SECONDARY,
+            command=self._toggle_vendor,
+            width=8
+        )
+        self.toggle_btn.pack(side=LEFT)
 
         # Настройка веса колонок для растягивания
         for i in range(9):
             self.grid_columnconfigure(i, weight=1)
+
+    def _toggle_vendor(self):
+        v = crud.toggle_vendor(self.rd_raw.vendor_id)
+        self.toggle_btn_var.set("Отключить" if v.active else "Включить")
 
     def _toggle_filters(self):
         """Переключает состояние фильтров"""

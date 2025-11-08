@@ -166,6 +166,18 @@ def add_vendor(name: str):
         return v
 
 
+def toggle_vendor(id: int):
+    with SessionLocal() as s:
+        v = s.query(Vendor).filter_by(id=id).first()
+        if v.active:
+            v.active = False
+        else:
+            v.active = True
+        s.commit()
+        s.refresh(v)
+        return v
+
+
 def list_vendors() -> list[Vendor]:
     with SessionLocal() as s:
         return s.query(Vendor).order_by(Vendor.name).all()
