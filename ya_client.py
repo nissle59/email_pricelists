@@ -14,6 +14,7 @@ from crud import add_letter, add_attachment, list_letters_email_ids, list_vendor
     get_vendor_name_by_id
 from models import Letter, Attachment, Filters
 from utils.imap import decode_folder_name
+from utils.paths import pm
 
 
 class YandexIMAPClient:
@@ -327,7 +328,8 @@ class YandexIMAPClient:
                 print(f"Письмо {email_id} будет отмечено как прочитанное")
             else:
                 # Этот вариант НЕ отмечает письмо как прочитанное
-                status, msg_data = self.mail.fetch(email_id, "(BODY.PEEK[])")
+                status, msg_data = self.mail.fetch(email_id, "(RFC822)")
+                #status, msg_data = self.mail.fetch(email_id, "(BODY.PEEK[])")
             # =============================================================
 
             if status != "OK":
@@ -359,6 +361,7 @@ class YandexIMAPClient:
 
         except Exception as e:
             print(f"Ошибка получения письма {email_id}: {e}")
+            traceback.print_exc()
             return {}
 
     def _process_email_content(self, msg) -> Dict:
@@ -561,18 +564,20 @@ class YandexIMAPClient:
 
                 filepath = os.path.join(download_folder, clean_filename)
 
+                abs_filepath = os.path.join(pm.get_user_data(), filepath)
+
                 # Создаём папку, если её нет
-                os.makedirs(os.path.dirname(filepath), exist_ok=True)
+                os.makedirs(os.path.dirname(abs_filepath), exist_ok=True)
 
                 # Проверяем, существует ли файл, и добавляем суффикс если нужно
                 counter = 1
-                original_filepath = filepath
+                original_filepath = abs_filepath
                 while os.path.exists(filepath):
                     name, ext = os.path.splitext(original_filepath)
-                    filepath = f"{name}_{counter}{ext}"
+                    abs_filepath = f"{name}_{counter}{ext}"
                     counter += 1
 
-                with open(filepath, 'wb') as f:
+                with open(abs_filepath, 'wb') as f:
                     f.write(payload)
 
                 downloaded_files.append(filepath)
@@ -897,5 +902,3 @@ s = settings.get_settings()
 client = YandexIMAPClient(s.get('email_username'), s.get('email_password'), s.get('email_server', 'imap.yandex.ru'),
                           int(s.get('email_port', 993)))
 
-if __name__ == "__main__":
-    custom_search_example()

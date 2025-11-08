@@ -5,3 +5,4 @@ try:
     settings = get_settings()
 except:
     init_db()
+    settings = get_settings()

@@ -120,7 +120,7 @@ def parse(out_file: str = "price.xlsx", days=7):
             {
                 "subject": email.subject,
                 "filename": a.file_name,
-                "filepath": a.file_path,
+                "filepath": os.path.join(pm.get_user_data(), a.file_path),
                 "date": email.date.strftime("%Y-%m-%d %H:%M")
             }
             for email in emails_instances
@@ -152,9 +152,9 @@ def parse(out_file: str = "price.xlsx", days=7):
                     except Exception as e:
                         print(f"Ошибка при копировании файла: {e}")
                 try:
-                    df_in = read_excel_safe(letter.get('filepath'))
+                    df_in = read_excel_safe(source_path)
                 except FileNotFoundError:
-                    print(f"Файл не найден: {letter.get('filepath')}")
+                    print(f"Файл не найден: {source_path}")
                     continue
                 try:
                     q_conf = json.loads(config_obj.quantum_config)

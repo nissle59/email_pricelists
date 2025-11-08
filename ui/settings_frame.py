@@ -1,3 +1,12 @@
+import os
+import platform
+import shutil
+import sys
+import traceback
+import zipfile
+from datetime import datetime
+from pathlib import Path
+from tkinter import filedialog, messagebox
 from typing import Self, TYPE_CHECKING
 import ttkbootstrap as ttk
 from ttkbootstrap.constants import *
@@ -8,8 +17,12 @@ import json
 import crud
 from models import Filters
 from settings import settings
+from ui.console import SimpleConsoleWindow
 from ui.parser_config_dialog import ParserConfigWindow
 from ui.role_editor import RolesEditor
+from utils.db import DB_FILE
+from utils.imap import decode_folder_name
+from utils.paths import pm
 from ya_client import client as email_client
 
 if TYPE_CHECKING:
@@ -384,13 +397,22 @@ def create_settings_frame(self, notebook):
     # Кнопка сохранения всех настроек
     bottom_frame = ttk.Frame(tab_settings)
     bottom_frame.pack(fill=X, padx=10, pady=10)
-    ttk.Button(bottom_frame, text="Редактор ролей", command=open_roles_editor).pack()
+
     ttk.Button(
         bottom_frame,
         text="Сохранить все настройки",
         bootstyle=SUCCESS,
         command=filter_frame.save_filters
     ).pack(side=RIGHT, padx=(10, 0))
+    ttk.Button(bottom_frame, text="Редактор ролей", command=open_roles_editor).pack(side=RIGHT, padx=(10, 0))
+
+    ttk.Button(bottom_frame, text="Импорт настроек", command=import_db).pack(side=RIGHT, padx=(10, 0))
+    ttk.Button(bottom_frame, text="Экспорт настроек", command=export_db).pack(side=RIGHT, padx=(10, 0))
+
+    # ttk.Button(bottom_frame, text="Синхронизировать БД", command=sync_db).pack(side=RIGHT, padx=(10, 0))
+
+    ttk.Button(bottom_frame, text="Импорт писем", command=import_letters).pack(side=RIGHT, padx=(10, 0))
+    ttk.Button(bottom_frame, text="Экспорт писем", command=export_letters).pack(side=RIGHT, padx=(10, 0))
 
     # ttk.Button(
     #     bottom_frame,
@@ -398,3 +420,285 @@ def create_settings_frame(self, notebook):
     #     bootstyle=PRIMARY,
     #     command=launch_price_parser
     # ).pack(side=RIGHT)
+
+
+def import_letters():
+    def wrapper_func():
+        # Получаем путь к рабочему столу
+        desktop_path = os.path.join(os.path.expanduser("~"), "Desktop")
+
+        # Создаем диалоговое окно выбора файла
+        file_path = filedialog.askopenfilename(
+            title="Выберите архив для импорта",
+            initialdir=desktop_path,
+            filetypes=[
+                ("ZIP архивы", "*.zip"),
+                ("Все файлы", "*.*")
+            ]
+        )
+
+        if not file_path:
+            print("Импорт отменен")
+            return None
+
+        try:
+            # Целевая директория для распаковки
+            target_directory = Path(pm.get_user_data() / 'attachments')
+
+            # Создаем целевую директорию, если её нет
+            target_directory.mkdir(parents=True, exist_ok=True)
+
+            # Распаковываем архив
+            with zipfile.ZipFile(file_path, 'r') as zipf:
+                # Получаем список файлов в архиве
+                file_list = zipf.namelist()
+
+                # Распаковываем все файлы
+                zipf.extractall(target_directory)
+
+                print(f"Архив распакован: {file_path}")
+                print(f"Файлов распаковано: {len(file_list)}")
+                print(f"Целевая директория: {target_directory}")
+
+                # Показываем список распакованных файлов
+                for file_name in file_list:
+                    print(f"  - {file_name}")
+
+            messagebox.showinfo("Успех", f"Архив успешно импортирован!\nФайлов: {len(file_list)}")
+            return target_directory
+
+        except zipfile.BadZipFile:
+            error_msg = "Выбранный файл не является корректным ZIP-архивом"
+            print(error_msg)
+            messagebox.showerror("Ошибка", error_msg)
+            return None
+        except Exception as e:
+            error_msg = f"Ошибка при импорте архива: {e}"
+            print(error_msg)
+            messagebox.showerror("Ошибка", error_msg)
+            return None
+    SimpleConsoleWindow(wrapper_func)
+
+
+def export_letters():
+    def wrapper_func():
+        directory = Path(pm.get_user_data() / 'attachments')
+
+        if not directory.exists():
+            messagebox.showwarning("Предупреждение", "Директория с вложениями не найдена")
+            return None
+
+        # Проверяем, есть ли файлы в директории
+        files_list = list(directory.rglob('*'))
+        files_list = [f for f in files_list if f.is_file()]
+
+        if not files_list:
+            messagebox.showwarning("Предупреждение", "В директории нет файлов для архивации")
+            return None
+
+        # Получаем путь к рабочему столу
+        desktop_path = os.path.join(os.path.expanduser("~"), "Desktop")
+
+        # Создаем имя файла с текущей датой
+        current_date = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+        default_filename = f"письма_{current_date}.zip"
+
+        # Создаем диалоговое окно сохранения файла
+        file_path = filedialog.asksaveasfilename(
+            title="Сохранить архив с письмами",
+            initialdir=desktop_path,
+            initialfile=default_filename,
+            defaultextension=".zip",
+            filetypes=[
+                ("ZIP архивы", "*.zip"),
+                ("Все файлы", "*.*")
+            ]
+        )
+
+        if not file_path:
+            print("Сохранение отменено")
+            return None
+
+        try:
+            # Создаем ZIP-архив с прогрессом
+            with zipfile.ZipFile(file_path, 'w', zipfile.ZIP_DEFLATED) as zipf:
+                for i, file_path_obj in enumerate(files_list, 1):
+                    if file_path_obj.is_file():
+                        arcname = file_path_obj.relative_to(directory)
+                        zipf.write(file_path_obj, arcname)
+                        print(f"Добавлен файл {i}/{len(files_list)}: {arcname}")
+
+            print(f"Архив успешно создан: {file_path}")
+            messagebox.showinfo("Успех", f"Архив успешно создан!\nФайлов: {len(files_list)}")
+            return file_path
+
+        except Exception as e:
+            error_msg = f"Ошибка при создании архива: {e}"
+            print(error_msg)
+            messagebox.showerror("Ошибка", error_msg)
+            return None
+    SimpleConsoleWindow(wrapper_func)
+
+
+def import_db():
+    desktop_path = os.path.join(os.path.expanduser("~"), "Desktop")
+
+    file_path = filedialog.askopenfilename(
+        title="Импортировать файл базы данных",
+        initialdir=desktop_path,
+        filetypes=[
+            ("Базы данных", "*.db"),
+            ("Все файлы", "*.*")
+        ]
+    )
+
+    if file_path:
+        # Подтверждение импорта
+        confirm = messagebox.askyesno(
+            "Подтверждение импорта",
+            f"Вы уверены, что хотите импортировать базу данных?\n"
+            f"Текущие данные будут заменены, а приложение перезапущено.\n\n"
+            f"Файл: {os.path.basename(file_path)}"
+        )
+
+        if not confirm:
+            print("Импорт отменен пользователем")
+            return None
+
+        try:
+            # Копируем импортируемый файл вместо текущей базы данных
+            shutil.copy2(file_path, DB_FILE)
+
+            messagebox.showinfo(
+                "Импорт завершен",
+                "База данных успешно импортирована.\nПриложение будет перезапущено."
+            )
+            restart_application()
+
+        except Exception as e:
+            messagebox.showerror("Ошибка импорта", f"Не удалось импортировать базу данных:\n{str(e)}")
+            return None
+    else:
+        print("Импорт отменен")
+        return None
+
+
+def export_db():
+    # Получаем путь к рабочему столу
+    desktop_path = os.path.join(os.path.expanduser("~"), "Desktop")
+
+    # Создаем диалоговое окно сохранения файла
+    file_path = filedialog.asksaveasfilename(
+        title="Сохранить файл базы данных",
+        initialdir=desktop_path,
+        initialfile="emailparser.db",
+        defaultextension=".db",
+        filetypes=[
+            ("Базы данных", "*.db"),
+            ("Все файлы", "*.*")
+        ]
+    )
+
+    if file_path:
+        print(f"Выбранный путь: {file_path}")
+        shutil.copy2(DB_FILE, file_path)
+        return file_path
+    else:
+        print("Сохранение отменено")
+        return None
+
+
+# def sync_db():
+#     """Синхронизирует базу данных с файловой системой"""
+#     def wrapper_sync():
+#         emails_instances = crud.list_letters()
+#         emails = [
+#             {
+#                 "id": email.letter_id,
+#                 "subject": email.subject,
+#                 "filename": a.file_name,
+#                 "filepath": os.path.join(pm.get_user_data(), a.file_path),
+#                 "date": email.date.strftime("%Y-%m-%d %H:%M"),
+#                 "vendor_id": email.vendor_id
+#             }
+#             for email in emails_instances
+#             for a in email.attachments
+#         ]
+#         print(f"К проверке {len(emails_instances)} excel файлов")
+#         ids_to_load = []
+#         emails_dict = {email["id"]: email for email in emails}
+#         for email in emails:
+#             filepath = Path(email["filepath"])
+#             if not filepath.exists():
+#                 print(f"File does not exist: {filepath}")
+#                 filepath.parent.mkdir(parents=True, exist_ok=True)
+#                 ids_to_load.append(email['id'])
+#         downloaded = 0
+#         if len(ids_to_load) > 0:
+#             if email_client.connect():
+#                 try:
+#                     folders_data = email_client.list_folders()
+#                     for folder_line in folders_data:
+#                         # Извлекаем часть с названием папки (последняя часть после "|")
+#                         parts = folder_line.split('"|"')
+#                         if len(parts) > 1:
+#                             folder_name = parts[-1].strip()
+#                             if folder_name in email_client.exluded_folders:
+#                                 continue
+#                             decoded_name = decode_folder_name(folder_name)
+#                             print(f"Грузим из папки: {decoded_name}")
+#                             email_client.set_mark_as_read_on_download(True)
+#                             email_client.select_folder(folder_name)
+#                             emails_with_excel = email_client.get_emails_with_excel_attachments(ids_to_load)
+#                             for i, email_info in enumerate(emails_with_excel, 1):
+#                                 found_email = emails_dict.get(email_info["id"])
+#                                 downloaded_files = email_client.download_excel_attachments(email_info, str(found_email.get('vendor_id')))
+#                                 downloaded += len(downloaded_files)
+#                 except Exception as e:
+#                     traceback.print_exc()
+#                 finally:
+#                     email_client.disconnect()
+#         print(f"Синхронизация завершена, загружено {downloaded}")
+#
+#     #SimpleConsoleWindow(wrapper_sync)
+#     wrapper_sync()
+
+def restart_application():
+    """Перезапускает приложение"""
+    import subprocess
+    import time
+
+    try:
+        if getattr(sys, 'frozen', False):
+            # Для скомпилированного приложения
+            executable = sys.executable
+        else:
+            # Для скрипта
+            executable = sys.executable
+
+        # Создаем пакетный файл/скрипт для перезапуска
+        if platform.system() == "Windows":
+            restart_script = """
+            @echo off
+            timeout /t 1 /nobreak >nul
+            "{}" {}
+            """.format(executable, " ".join(sys.argv[1:]))
+
+            script_path = os.path.join(os.path.dirname(executable), "restart.bat")
+            with open(script_path, "w") as f:
+                f.write(restart_script)
+
+            subprocess.Popen([script_path], shell=True)
+        else:
+            # Linux/Mac
+            subprocess.Popen([executable] + sys.argv[1:])
+
+        sys.exit(0)
+
+    except Exception as e:
+        print(f"Ошибка при перезапуске: {e}")
+        messagebox.showinfo(
+            "Перезапуск",
+            "Приложение будет закрыто. Пожалуйста, запустите его врутяную."
+        )
+        sys.exit(0)

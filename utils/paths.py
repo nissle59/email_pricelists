@@ -2,6 +2,7 @@ import os
 import sys
 from pathlib import Path
 from typing import Literal
+import appdirs
 
 
 class PathManager:
@@ -54,5 +55,22 @@ class PathManager:
     def get_executable_dir_path(self, *relative_paths):
         """Получить путь относительно директории исполняемого файла"""
         return os.path.join(self.executable_dir, *relative_paths)
+
+    def get_app_dirs_standard(self):
+        """Использует библиотеку appdirs для стандартных путей"""
+        app_name = "Pricelist"
+        app_author = "Nissle"
+
+        return {
+            'user_data': Path(appdirs.user_data_dir(app_name, app_author)),
+            'user_config': Path(appdirs.user_config_dir(app_name, app_author)),
+            'user_cache': Path(appdirs.user_cache_dir(app_name, app_author)),
+            'user_logs': Path(appdirs.user_log_dir(app_name, app_author)),
+            'site_data': Path(appdirs.site_data_dir(app_name, app_author)),
+        }
+
+    def get_user_data(self):
+        ud = self.get_app_dirs_standard()['user_data'].mkdir(parents=True, exist_ok=True)
+        return self.get_app_dirs_standard()['user_data']
 
 pm = PathManager()

@@ -4,7 +4,12 @@ import os
 from sqlalchemy import create_engine, MetaData
 from sqlalchemy.orm import sessionmaker, declarative_base
 
-ENGINE_URL = "sqlite:///" + os.path.join(os.getcwd(), "emailparser.db")  # можно сменить путь
+from utils.paths import pm
+
+#ENGINE_URL = "sqlite:///" + os.path.join(os.getcwd(), "emailparser.db")  # можно сменить путь
+DB_FILE = os.path.join(pm.get_user_data(), "emailparser.db")
+ENGINE_URL = "sqlite:///" + DB_FILE
+print(ENGINE_URL)
 
 engine = create_engine(ENGINE_URL, echo=False, future=True)
 SessionLocal = sessionmaker(bind=engine, expire_on_commit=False, future=True)
