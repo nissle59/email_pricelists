@@ -17,7 +17,7 @@ class App(ttk.Window):
             resizable=(True, True)
         )
         s = get_settings()
-        print(s)
+        #print(s)
         self.email_client = YandexIMAPClient(s.get('email_username'), s.get('email_password'))
         self.create_tabs()
 

@@ -144,7 +144,7 @@ def parse(out_file: str = "price.xlsx", days=7):
                         elif not os.path.exists(source_path):
                             print(f"Исходный файл не существует: {source_path}")
                         else:
-                            shutil.copy2(source_path, pm.get_executable_dir_path(out_fname))
+                            shutil.copy2(source_path, pm.save_file(out_fname, mode="source"))
                             print(f"Успешно скопировано: {source_path} -> {out_fname}")
 
                     except PermissionError:
@@ -180,7 +180,7 @@ def parse(out_file: str = "price.xlsx", days=7):
         out_df = remove_duplicates(out_df).drop(['Дата'], axis=1)
 
         print(out_df)
-        to_excel_with_role_widths(out_df, pm.get_executable_dir_path('price.xlsx'))
+        to_excel_with_role_widths(out_df, pm.save_file('Объединенный прайс.xlsx'))
         print('Done!')
     else:
         print("No data found")

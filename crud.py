@@ -14,7 +14,6 @@ from models import Role, Vendor, ParsingConfig, RoleMapping, Filters, Settings, 
 def list_email_filters():
     with SessionLocal() as s:
         r = s.query(Filters).options(joinedload(Filters.vendor)).all()
-        print(r)
         return s.query(Filters).all()
 
 

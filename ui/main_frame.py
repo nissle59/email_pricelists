@@ -8,6 +8,7 @@ from ttkbootstrap.toast import ToastNotification
 from ttkbootstrap.validation import add_regex_validation
 
 from crud import list_letters, list_vendors, set_vendor_last_load, list_configs_for_vendor
+from ui.console import ConsoleWindow, SimpleConsoleWindow
 from utils.parser_logic import parse
 from ya_client import client as email_client
 
@@ -244,12 +245,15 @@ class MainFrame:
 
     def start_loading(self):
         """Запуск загрузки прайс-листов"""
-        email_client.get_all_prices(days=int(self.days_entry_var.get()))
-        for vid, _, _, _ in self.vendors_list:
-            set_vendor_last_load(vid, datetime.now())
-        self.vendors_list = [[str(vendor.id), vendor.name, "Да" if vendor.active else "Нет", vendor.last_load.strftime('%Y-%m-%d %H:%M:%S') if vendor.last_load else ''] for vendor in list_vendors()]
-        self.suppliers_table.delete_rows()
-        self.suppliers_table.insert_rows(0, self.vendors_list)
+        def wrapper_loading():
+            email_client.get_all_prices(days=int(self.days_entry_var.get()))
+            for vid, _, _, _ in self.vendors_list:
+                set_vendor_last_load(vid, datetime.now())
+            self.vendors_list = [[str(vendor.id), vendor.name, "Да" if vendor.active else "Нет", vendor.last_load.strftime('%Y-%m-%d %H:%M:%S') if vendor.last_load else ''] for vendor in list_vendors()]
+            self.suppliers_table.delete_rows()
+            self.suppliers_table.insert_rows(0, self.vendors_list)
+
+        SimpleConsoleWindow(wrapper_loading)
 
     def on_supplier_selected(self, event):
         """Обработчик выбора поставщика"""
@@ -284,14 +288,17 @@ class MainFrame:
 
     def start_parsing(self):
         """Запуск парсинга"""
-        fname = 'price.xlsx'
-        days_depth = 7
-        parse(fname, days_depth)
-        ToastNotification(
-            title="Сохранено",
-            message=f"Прайс-лист {fname} сохранён",
-            bootstyle=SUCCESS
-        ).show_toast()
+        def wrapper_parse():
+            fname = 'price.xlsx'
+            days_depth = 7
+            parse(fname, days_depth)
+            ToastNotification(
+                title="Сохранено",
+                message=f"Прайс-лист {fname} сохранён",
+                bootstyle=SUCCESS
+            ).show_toast()
+
+        SimpleConsoleWindow(wrapper_parse)
 
     def load_suppliers_data(self):
         """Загрузка данных поставщиков из БД"""

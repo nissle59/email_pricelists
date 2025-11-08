@@ -202,7 +202,7 @@ class YandexIMAPClient:
 
     def search_emails(self, criteria: str = "ALL") -> List[str]:
         """Поиск писем по критериям"""
-        print(f"Критерии поиска: {criteria}")
+        #print(f"Критерии поиска: {criteria}")
         out = []
         self.email_ids_to_pass = list_letters_email_ids()
         if not self.connected:
@@ -604,7 +604,7 @@ class YandexIMAPClient:
             try:
                 # Всегда используем BODY.PEEK[] при поиске писем, чтобы не отмечать как прочитанные
                 email_info = self.get_email_details(email_id, mark_as_read=False)
-                print(email_info.get('subject'), email_info.get('date'))
+                #print(email_info.get('subject'), email_info.get('date'))
                 if email_info and email_info.get('excel_attachments'):
                     print(
                         f"Найдено письмо с Excel вложением: [{email_info.get('date')}] {email_info.get('from')}: {email_info.get('subject')}")

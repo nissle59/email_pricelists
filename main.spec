@@ -52,5 +52,5 @@ exe = EXE(
     upx=True,
     console=True,
     icon='assets/icon.ico' if os.path.exists('assets/icon.ico') else None,
-    onefile=True  # ключевой параметр для одного файла
+    onefile=False  # ключевой параметр для одного файла
 )

@@ -73,5 +73,8 @@ app = BUNDLE(
         'CFBundlePackageType': 'APPL',
         'NSHighResolutionCapable': True,
         'LSMinimumSystemVersion': '10.13',
+        # Разрешаем доступ к файловой системе
+        'NSDocumentsFolderUsageDescription': 'Приложению требуется доступ для сохранения файлов',
+        'NSDesktopFolderUsageDescription': 'Приложению требуется доступ для сохранения файлов',
     },
 )

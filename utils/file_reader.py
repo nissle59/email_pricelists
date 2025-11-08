@@ -13,7 +13,7 @@ def read_excel_safe(file_path: str | Path) -> pd.DataFrame:
             return df
         except Exception as e:
             continue
-    raise
+    raise FileNotFoundError
     # try:
     #     import xlwings as xw
     #     print("Пробуем через xlwings...")
