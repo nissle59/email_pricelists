@@ -148,7 +148,11 @@ def parse(out_file: str = "price.xlsx", days=7):
                         print(f"Ошибка доступа при копировании файла")
                     except Exception as e:
                         print(f"Ошибка при копировании файла: {e}")
-                df_in = read_excel_safe(letter.get('filepath'))
+                try:
+                    df_in = read_excel_safe(letter.get('filepath'))
+                except FileNotFoundError:
+                    print(f"Файл не найден: {letter.get('filepath')}")
+                    continue
                 try:
                     q_conf = json.loads(config_obj.quantum_config)
                 except:
