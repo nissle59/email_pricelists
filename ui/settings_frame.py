@@ -9,6 +9,7 @@ import crud
 from models import Filters
 from settings import settings
 from ui.parser_config_dialog import ParserConfigWindow
+from ui.role_editor import RolesEditor
 from ya_client import client as email_client
 
 if TYPE_CHECKING:
@@ -342,6 +343,12 @@ def launch_price_parser():
     ps = PriceParserApp(parent=ttk.Toplevel(title="Парсер цен"))
 
 
+def open_roles_editor():
+    editor = RolesEditor(parent=None)  # parent_window - ваше главное окно
+    editor.grab_set()  # Модальное окно
+    editor.wait_window()
+
+
 def create_settings_frame(self, notebook):
     tab_settings = ttk.Frame(notebook)
     notebook.add(tab_settings, text="⚙️ Настройки")
@@ -363,7 +370,7 @@ def create_settings_frame(self, notebook):
     # Кнопка сохранения всех настроек
     bottom_frame = ttk.Frame(tab_settings)
     bottom_frame.pack(fill=X, padx=10, pady=10)
-
+    ttk.Button(bottom_frame, text="Редактор ролей", command=open_roles_editor).pack()
     ttk.Button(
         bottom_frame,
         text="Сохранить все настройки",

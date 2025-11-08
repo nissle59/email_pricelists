@@ -1,7 +1,7 @@
 from datetime import datetime
 
 from sqlalchemy import (
-    Column, Integer, String, Boolean, ForeignKey, UniqueConstraint, DateTime
+    Column, Integer, String, Boolean, ForeignKey, UniqueConstraint, DateTime, JSON
 )
 from sqlalchemy.orm import relationship, Mapped, mapped_column
 
@@ -46,6 +46,7 @@ class ParsingConfig(Base):
     to_common: Mapped[bool | None] = mapped_column(Boolean, default=True)
     save_original: Mapped[bool | None] = mapped_column(Boolean, default=False)
     save_parsed: Mapped[bool | None] = mapped_column(Boolean, default=False)
+    quantum_config: Mapped[str | None] = mapped_column(String, default=None)
 
     vendor: Mapped[list["Vendor"]] = relationship(back_populates="configs")
     mappings: Mapped[list["RoleMapping"]] = relationship(back_populates="config", cascade="all, delete-orphan")

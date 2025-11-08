@@ -102,7 +102,7 @@ class ParserConfigWindow(ttk.Toplevel):
 
         def on_focus_out(event):
             print("Focus out event")
-            new_vendor = self.vendor_var.get()
+            new_vendor = self.rule_data.vendor.name
             print(new_vendor)
             self.configlist = list_configs_for_vendor(new_vendor)
             print(self.configlist)
@@ -123,15 +123,15 @@ class ParserConfigWindow(ttk.Toplevel):
                             except:
                                 i['values'] = []
 
-        ttk.Label(info_frame, text="Поставщик:", width=15).grid(row=current_row, column=0, sticky=W, pady=2)
-        vendor_name = get_vendor_name_by_id(self.rule_data.vendor_id)
-        self.vendor_var = ttk.StringVar(value=vendor_name)
-        vendor_entry = ttk.Combobox(info_frame, textvariable=self.vendor_var, values=[v.name for v in self.vendors],
-                                    width=25)
-        vendor_entry.grid(row=current_row, column=1, sticky=W, pady=2, padx=5)
-        vendor_entry.bind('<FocusOut>', on_focus_out)
-        vendor_entry.bind('<<ComboboxSelected>>', on_focus_out)
-        current_row += 1
+        # ttk.Label(info_frame, text="Поставщик:", width=15).grid(row=current_row, column=0, sticky=W, pady=2)
+        # vendor_name = get_vendor_name_by_id(self.rule_data.vendor_id)
+        # self.rule_data.vendor.name = ttk.StringVar(value=vendor_name)
+        # vendor_entry = ttk.Combobox(info_frame, textvariable=self.rule_data.vendor.name, values=[v.name for v in self.vendors],
+        #                             width=25)
+        # vendor_entry.grid(row=current_row, column=1, sticky=W, pady=2, padx=5)
+        # vendor_entry.bind('<FocusOut>', on_focus_out)
+        # vendor_entry.bind('<<ComboboxSelected>>', on_focus_out)
+        # current_row += 1
 
         # Заголовок раздела конфигураций
         config_header = ttk.Frame(left_frame)
@@ -259,8 +259,8 @@ class ParserConfigWindow(ttk.Toplevel):
             }
         ]
 
-        configs = list_configs_for_vendor(self.vendor_var.get())
-        print(self.vendor_var.get())
+        configs = list_configs_for_vendor(self.rule_data.vendor.name)
+        print(self.rule_data.vendor.name)
         for config_data in configs:
             print(config_data)
             self._add_config_frame(config_data)
@@ -474,12 +474,12 @@ class ParserConfigWindow(ttk.Toplevel):
         # config_data = {
         #     'name': 'Новая конфигурация',
         #     'filename_pattern': '',
-        #     'vendor': self.vendor_var.get(),
-        #     'config_name': f"{self.vendor_var.get()}_новая"
+        #     'vendor': self.rule_data.vendor.name,
+        #     'config_name': f"{self.rule_data.vendor.name}_новая"
         # }
         config_data = ParsingConfig(
             name='Новая конфигурация',
-            vendor_id=get_vendor_by_name(self.vendor_var.get()).id
+            vendor_id=self.rule_data.vendor_id
         )
         self._add_config_frame(config_data)
 
@@ -534,7 +534,7 @@ class ParserConfigWindow(ttk.Toplevel):
             text="Настроить парсер",
             bootstyle=PRIMARY,
             command=lambda: self._configure_parser({
-                'vendor': self.vendor_var.get(),
+                'vendor': self.rule_data.vendor.name,
                 'config_name': config_var.get()
             })
         ).pack(side=LEFT, padx=(0, 10))
@@ -549,7 +549,7 @@ class ParserConfigWindow(ttk.Toplevel):
         # Сохраняем ссылки на переменные
         config_frame.vars = {
             'pattern': pattern_var,
-            'vendor': self.vendor_var,
+            'vendor': self.rule_data.vendor.name,
             'config_name': config_var,
             'active': active_var,
             'save_original': original_var,
@@ -580,6 +580,7 @@ class ParserConfigWindow(ttk.Toplevel):
                     bootstyle=DANGER
                 ).show_toast()
                 return
+            print(config_data['vendor'])
             parser_window = PriceParserApp(
                 parent=self,
                 vendor=config_data['vendor'],
@@ -620,14 +621,14 @@ class ParserConfigWindow(ttk.Toplevel):
             if config_frame.winfo_exists():
                 config_data = {
                     'filename_pattern': config_frame.vars['pattern'].get(),
-                    'vendor': config_frame.vars['vendor'].get(),
+                    #'vendor': config_frame.vars['vendor'].get(),
                     'config_name': config_frame.vars['config_name'].get()
                 }
                 try:
                     print([config_frame.vars[v].get() for v in config_frame.vars])
                     conf = save_config(
                         config_name=config_frame.vars['config_name'].get(),
-                        vendor_name=config_frame.vars['vendor'].get(),
+                        vendor_name=self.rule_data.vendor.name,
                         filename_pattern=config_frame.vars['pattern'].get(),
                         active=config_frame.vars['active'].get(),
                         to_common=config_frame.vars['to_common'].get(),

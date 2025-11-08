@@ -1,4 +1,5 @@
 import datetime
+import json
 import os
 import shutil
 
@@ -7,6 +8,7 @@ import crud
 from models import Filters, ParsingConfig
 from utils.convert_df import apply_parser_settings, to_excel_with_role_widths
 from utils.file_reader import read_excel_safe
+from utils.paths import pm
 
 
 def find_matching_config(filename, configs: list[ParsingConfig]):
@@ -139,7 +141,7 @@ def parse(out_file: str = "price.xlsx", days=7):
                         elif not os.path.exists(source_path):
                             print(f"Исходный файл не существует: {source_path}")
                         else:
-                            shutil.copy2(source_path, out_fname)
+                            shutil.copy2(source_path, pm.get_executable_dir_path(out_fname))
                             print(f"Успешно скопировано: {source_path} -> {out_fname}")
 
                     except PermissionError:
@@ -147,7 +149,11 @@ def parse(out_file: str = "price.xlsx", days=7):
                     except Exception as e:
                         print(f"Ошибка при копировании файла: {e}")
                 df_in = read_excel_safe(letter.get('filepath'))
-                df_out = apply_parser_settings(df_in, config_obj, vendor.name, date=letter_date)
+                try:
+                    q_conf = json.loads(config_obj.quantum_config)
+                except:
+                    q_conf = None
+                df_out = apply_parser_settings(df_in, config_obj, vendor.name, date=letter_date, quantum_config=q_conf)
                 dfs.append({
                     "vendor_id": vendor.id,
                     "config_id": cfg_id,
@@ -167,7 +173,7 @@ def parse(out_file: str = "price.xlsx", days=7):
         out_df = remove_duplicates(out_df).drop(['Дата'], axis=1)
 
         print(out_df)
-        to_excel_with_role_widths(out_df, 'price.xlsx')
+        to_excel_with_role_widths(out_df, pm.get_executable_dir_path('price.xlsx'))
         print('Done!')
     else:
         print("No data found")

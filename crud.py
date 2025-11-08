@@ -1,9 +1,10 @@
 # crud.py
+import json
 from datetime import datetime, timedelta
 
 from sqlalchemy import select, update
 from sqlalchemy.exc import NoResultFound, IntegrityError
-from sqlalchemy.orm import selectinload
+from sqlalchemy.orm import selectinload, joinedload
 
 from models.email import RefFiltersConfigs
 from utils.db import SessionLocal
@@ -12,7 +13,7 @@ from models import Role, Vendor, ParsingConfig, RoleMapping, Filters, Settings, 
 
 def list_email_filters():
     with SessionLocal() as s:
-        r = s.query(Filters).all()
+        r = s.query(Filters).options(joinedload(Filters.vendor)).all()
         print(r)
         return s.query(Filters).all()
 
@@ -22,6 +23,12 @@ def add_email_filter(filter: Filters):
         s.add(filter)
         s.commit()
         s.refresh(filter)
+        v = s.query(Vendor).filter_by(name=filter.name).first()
+        if not v:
+            v = Vendor(name=filter.name)
+            s.add(v)
+            s.commit()
+            s.refresh(v)
         return filter
 
 
@@ -39,17 +46,17 @@ def set_email_filter_vendor_id(filter_id: int, vendor_id: int):
 
 def get_email_filter(filter_id: int):
     with SessionLocal() as s:
-        return s.query(Filters).filter(Filters.id == filter_id).first()
+        return s.query(Filters).options(joinedload(Filters.vendor)).filter(Filters.id == filter_id).first()
 
 
 def get_email_filter_by_vendor(vendor_id: int):
     with SessionLocal() as s:
-        return s.query(Filters).filter(Filters.vendor_id == vendor_id).first()
+        return s.query(Filters).options(joinedload(Filters.vendor)).filter(Filters.vendor_id == vendor_id).first()
 
 
 def get_email_filter_by_name(name: str):
     with SessionLocal() as s:
-        return s.query(Filters).filter(Filters.name == name).first()
+        return s.query(Filters).options(joinedload(Filters.vendor)).filter(Filters.name == name).first()
 
 
 def update_email_filter(filter_id: int, filter: Filters):
@@ -78,6 +85,11 @@ def delete_email_filter(filter_id: int):
         if db_filter:
             s.delete(db_filter)
             s.commit()
+            v = s.query(Vendor).filter(Vendor.id == db_filter.vendor_id).first()
+            if v:
+                s.delete(v)
+                s.commit()
+                s.refresh(v)
             return True
         else:
             raise NoResultFound("Filter not found")
@@ -121,6 +133,26 @@ def list_roles():
 def get_role_by_name(name: str):
     with SessionLocal() as s:
         return s.query(Role).filter_by(name=name).first()
+
+
+def update_role(id: int, name: str, required: bool = False):
+    with SessionLocal() as s:
+        r = s.query(Role).filter_by(id=id).first()
+        if r:
+            r.name = name
+            r.required = required
+            s.commit()
+            s.refresh(r)
+        return r
+
+
+def delete_role(id: int):
+    with SessionLocal() as s:
+        r = s.query(Role).filter_by(id=id).first()
+        if r:
+            s.delete(r)
+            s.commit()
+        return r
 
 
 def add_vendor(name: str):
@@ -205,7 +237,8 @@ def save_config(
         to_common: bool | None = None,
         active: bool | None = None,
         save_original: bool | None = None,
-        save_parsed: bool | None = None
+        save_parsed: bool | None = None,
+        quantum_config: dict | None = None
 ):
     """
     roles_mapping: { role_name: column_name }
@@ -250,6 +283,8 @@ def save_config(
                 cfg.save_original = save_original
             if save_parsed is not None:
                 cfg.save_parsed = save_parsed
+            if quantum_config is not None:
+                cfg.quantum_config = json.dumps(quantum_config, indent=2, ensure_ascii=False)
             s.add(cfg)
             s.flush()
             # добавляем mappings ниже (поскольку их не было)
@@ -267,17 +302,20 @@ def save_config(
                 cfg.vendor_id = vendor.id
                 updated = True
 
-            if active is not None:
+            if cfg.active != active and active is not None:
                 cfg.active = active
                 updated = True
-            if to_common is not None:
+            if cfg.to_common != to_common and to_common is not None:
                 cfg.to_common = to_common
                 updated = True
-            if save_original is not None:
+            if cfg.save_original != save_original and save_original is not None:
                 cfg.save_original = save_original
                 updated = True
-            if save_parsed is not None:
+            if cfg.save_parsed != save_parsed and save_parsed is not None:
                 cfg.save_parsed = save_parsed
+                updated = True
+            if cfg.quantum_config != quantum_config and quantum_config is not None:
+                cfg.quantum_config = json.dumps(quantum_config, indent=2, ensure_ascii=False)
                 updated = True
 
             # подготовим словарь существующих mapping'ов (role_name -> column_name)
@@ -384,10 +422,15 @@ def delete_config(config_id: int):
             return False
 
 
-def load_config_by_name(config_name: str):
+def load_config_by_name(config_name: str, vendor_name: str | None = None):
     """Возвращает dict {'id', 'name', 'vendor', 'header_row', 'roles_mapping'} или None"""
     with SessionLocal() as s:
-        cfg = s.query(ParsingConfig).filter_by(name=config_name).first()
+        if vendor_name:
+            vendor = s.query(Vendor).filter_by(name=vendor_name).first()
+        cfg = s.query(ParsingConfig).filter_by(name=config_name)
+        if vendor_name and vendor:
+            cfg = cfg.filter_by(vendor_id=vendor.id)
+        cfg = cfg.first()
         if not cfg:
             return None
         roles_map = {m.role.name: m.column_name for m in cfg.mappings}
@@ -396,7 +439,8 @@ def load_config_by_name(config_name: str):
             "name": cfg.name,
             "vendor": cfg.vendor.name if cfg.vendor else None,
             "header_row": cfg.header_row,
-            "roles_mapping": roles_map
+            "roles_mapping": roles_map,
+            "quantum_config": json.loads(cfg.quantum_config) if cfg.quantum_config else None,
         }
 
 
@@ -427,7 +471,7 @@ def list_configs_for_vendor_dict(vendor_name: str) -> dict:
             d.update({'roles_mapping': {}})
         for mapping in config.mappings:
             d['roles_mapping'].update({mapping.role.name: mapping.column_name})
-        out.update({config.id:d})
+        out.update({config.id: d})
     return out
 
 

@@ -1,14 +1,11 @@
-import json
 import re
-import traceback
-
 import pandas as pd
 import ttkbootstrap as ttk
 from ttkbootstrap.constants import *
 from ttkbootstrap.toast import ToastNotification
 from functools import partial
 from pathlib import Path
-from tkinter import filedialog, simpledialog, messagebox
+from tkinter import filedialog, simpledialog
 
 import crud
 import utils.db
@@ -17,188 +14,6 @@ from utils.file_reader import read_excel_safe
 from utils.stock_normalizer import normalize_stock_value
 
 utils.db.init_db()
-
-
-class QuantumConfigDialog(ttk.Toplevel):
-    """Диалог для настройки сложной логики кванта"""
-
-    def __init__(self, parent, available_columns, quantum_config):
-        super().__init__(parent)
-        self.title("Настройка логики кванта")
-        self.geometry("600x500")
-        self.transient(parent)
-        self.grab_set()
-        self.config = quantum_config
-        print(self.config)
-
-        # Центрируем окно
-        self.update_idletasks()
-        x = parent.winfo_x() + (parent.winfo_width() - self.winfo_width()) // 2
-        y = parent.winfo_y() + (parent.winfo_height() - self.winfo_height()) // 2
-        self.geometry(f"+{x}+{y}")
-
-        self.available_columns = available_columns
-        self.result = None
-
-        self._build_ui()
-
-    def _build_ui(self):
-        main_frame = ttk.Frame(self)
-        main_frame.pack(fill=BOTH, expand=YES, padx=10, pady=10)
-
-        # Заголовок
-        ttk.Label(main_frame, text="Настройка логики для колонки 'Квант'",
-                  font="-size 12 -weight bold").pack(pady=(0, 15))
-
-        # Описание проблемы
-        desc_text = (
-            "Если в колонке 'Квант' указаны единицы измерения (шт, кор, бл и т.д.) "
-            "вместо чисел, настройте соответствие между единицами измерения "
-            "и колонками с количеством штук."
-        )
-        desc_label = ttk.Label(main_frame, text=desc_text, wraplength=580, justify=LEFT)
-        desc_label.pack(pady=(0, 15))
-
-        # Фрейм для основной колонки кванта
-        quantum_frame = ttk.LabelFrame(main_frame, text="Основная колонка кванта")
-        quantum_frame.pack(fill=X, pady=(0, 10))
-
-        ttk.Label(quantum_frame, text="Колонка с единицами измерения:").pack(anchor=W, pady=(5, 0))
-        try:
-            q_col = self.config.get("quantum_column", "(не выбрано)")
-        except:
-            q_col = "(не выбрано)"
-        self.quantum_var = ttk.StringVar(value=q_col)
-        quantum_cmb = ttk.Combobox(quantum_frame, textvariable=self.quantum_var,
-                                   values=["(не выбрано)"] + self.available_columns)
-        quantum_cmb.pack(fill=X, padx=5, pady=5)
-
-        # Фрейм для сопоставления единиц измерения
-        mapping_frame = ttk.LabelFrame(main_frame, text="Сопоставление единиц измерения")
-        mapping_frame.pack(fill=BOTH, expand=YES, pady=(0, 10))
-
-        # Прокручиваемая область для сопоставлений
-        canvas = ttk.Canvas(mapping_frame, height=200)
-        scrollbar = ttk.Scrollbar(mapping_frame, orient=VERTICAL, command=canvas.yview)
-        self.mappings_frame = ttk.Frame(canvas)
-
-        self.mappings_frame.bind("<Configure>", lambda e: canvas.configure(scrollregion=canvas.bbox("all")))
-        canvas.create_window((0, 0), window=self.mappings_frame, anchor="nw")
-        canvas.configure(yscrollcommand=scrollbar.set)
-
-        canvas.pack(side=LEFT, fill=BOTH, expand=YES)
-        scrollbar.pack(side=RIGHT, fill=Y)
-
-        # Предустановленные сопоставления
-        self.mappings = []
-        try:
-            for key, value in self.config.get("unit_mappings").items():
-                self._add_mapping_row(key, value)
-        except:
-            self._add_mapping_row("шт", "1")  # По умолчанию для штук
-            self._add_mapping_row("шт.", "1")
-
-
-        # Кнопка добавления нового сопоставления
-        ttk.Button(mapping_frame, text="+ Добавить сопоставление",
-                   command=self._add_mapping_row, bootstyle=OUTLINE).pack(pady=5)
-
-        # Фрейм для колонок с количествами
-        quantity_frame = ttk.LabelFrame(main_frame, text="Колонки с количеством штук")
-        quantity_frame.pack(fill=X, pady=(0, 10))
-
-        # Штук в коробке
-        ttk.Label(quantity_frame, text="Колонка 'Штук в коробке':").pack(anchor=W, pady=(5, 0))
-        try:
-            box_q = self.config.get("box_quantity_column", "(не выбрано)")
-        except:
-            box_q = "(не выбрано)"
-        self.box_qty_var = ttk.StringVar(value=box_q)
-        box_cmb = ttk.Combobox(quantity_frame, textvariable=self.box_qty_var,
-                               values=["(не выбрано)"] + self.available_columns)
-        box_cmb.pack(fill=X, padx=5, pady=(0, 5))
-
-        # Штук в блоке
-        ttk.Label(quantity_frame, text="Колонка 'Штук в блоке':").pack(anchor=W, pady=(5, 0))
-        try:
-            block_q = self.config.get("block_quantity_column", "(не выбрано)")
-        except:
-            block_q = "(не выбрано)"
-        self.block_qty_var = ttk.StringVar(value=block_q)
-        block_cmb = ttk.Combobox(quantity_frame, textvariable=self.block_qty_var,
-                                 values=["(не выбрано)"] + self.available_columns)
-        block_cmb.pack(fill=X, padx=5, pady=(0, 5))
-
-        # Кнопки
-        button_frame = ttk.Frame(main_frame)
-        button_frame.pack(fill=X, pady=(10, 0))
-
-        ttk.Button(button_frame, text="Отмена", bootstyle=SECONDARY,
-                   command=self.destroy).pack(side=LEFT)
-
-        ttk.Button(button_frame, text="Сохранить", bootstyle=SUCCESS,
-                   command=self._save_config).pack(side=RIGHT)
-
-    def _add_mapping_row(self, unit="", column=""):
-        """Добавляет строку для сопоставления единицы измерения"""
-        row_frame = ttk.Frame(self.mappings_frame)
-        row_frame.pack(fill=X, pady=2)
-
-        # Единица измерения
-        unit_entry = ttk.Entry(row_frame, width=15)
-        unit_entry.insert(0, unit)
-        unit_entry.pack(side=LEFT, padx=(0, 5))
-
-        # Стрелка
-        ttk.Label(row_frame, text="→").pack(side=LEFT, padx=5)
-
-        # Колонка с количеством
-        column_cmb = ttk.Combobox(row_frame, width=20,
-                                  values=["(не выбрано)"] + self.available_columns + ["1"])
-        if column:
-            column_cmb.set(column)
-        else:
-            column_cmb.set("(не выбрано)")
-        column_cmb.pack(side=LEFT, padx=(0, 5))
-
-        # Кнопка удаления
-        btn = ttk.Button(row_frame, text="×", width=3, bootstyle=DANGER,
-                         command=lambda: row_frame.destroy())
-        btn.pack(side=LEFT)
-
-        self.mappings.append((unit_entry, column_cmb))
-
-    def _save_config(self):
-        """Сохраняет конфигурацию"""
-        config = {
-            'quantum_column': self.quantum_var.get() if self.quantum_var.get() != "(не выбрано)" else None,
-            'unit_mappings': {},
-            'box_quantity_column': self.box_qty_var.get() if self.box_qty_var.get() != "(не выбрано)" else None,
-            'block_quantity_column': self.block_qty_var.get() if self.block_qty_var.get() != "(не выбрано)" else None
-        }
-
-        # Собираем сопоставления единиц измерения
-        for unit_entry, column_cmb in self.mappings:
-            try:
-                unit = unit_entry.get().strip()
-                column = column_cmb.get()
-
-                if unit and column != "(не выбрано)":
-                    config['unit_mappings'][unit] = column
-            except Exception as e:
-                print(e)
-
-        if not config['quantum_column']:
-            messagebox.showerror("Ошибка", "Выберите колонку с единицами измерения")
-            return
-
-        if not config['unit_mappings']:
-            messagebox.showerror("Ошибка", "Добавьте хотя бы одно сопоставление единиц измерения")
-            return
-
-        self.result = config
-        self.destroy()
-
 
 
 class PriceParserApp(ttk.Toplevel):
@@ -211,8 +26,6 @@ class PriceParserApp(ttk.Toplevel):
         print(file_in)
         super().__init__(self.parent)
         self.geometry("1200x800")
-        # Добавляем атрибут для хранения конфигурации кванта
-        self.quantum_config = None
         self.resizable(True, True)
         # Центрируем окно парсера
         self.update_idletasks()
@@ -354,13 +167,13 @@ class PriceParserApp(ttk.Toplevel):
         # else:
         #     self.config_name = f"{config_name} [{vendor}]"
 
-        # crud.add_role("Наименование", required=True)
-        # crud.add_role("Закупочная цена", required=True)
-        # crud.add_role("Артикул", required=True)
-        # crud.add_role("Остаток", required=True)
-        # crud.add_role("Квант", required=False)
-        # crud.add_role("Бренд", required=False)
-        # crud.add_role("РРЦ", required=False)
+        crud.add_role("Наименование", required=True)
+        crud.add_role("Закупочная цена", required=True)
+        crud.add_role("Артикул", required=True)
+        crud.add_role("Остаток", required=True)
+        crud.add_role("Квант", required=False)
+        crud.add_role("Бренд", required=False)
+        crud.add_role("РРЦ", required=False)
 
         self.VENDOR = vendor
 
@@ -368,16 +181,7 @@ class PriceParserApp(ttk.Toplevel):
 
         self.ROLES = crud.list_roles()
 
-        self.CONFIG = crud.load_config_by_name(self.config_name, vendor_name=vendor)
-        print(self.CONFIG)
-        try:
-            self.quantum_config = self.CONFIG.get('quantum_config')
-            print("Quantum config found in config file.")
-            #self._update_table()
-        except Exception as e:
-            traceback.print_exc()
-            print("Quantum config not found in config file.")
-            self.quantum_config = None
+        self.CONFIG = crud.load_config_by_name(self.config_name)
 
         self.df_raw = read_excel_safe(self.file_path)
         self.df = None
@@ -494,8 +298,8 @@ class PriceParserApp(ttk.Toplevel):
                                 break  # выходим из внутреннего цикла после первого совпадения в группе
 
                 # Отладочная информация
-                # if current_score > 0:
-                #     print(f"Строка {row_idx}: score={current_score}, keywords={found_keywords}")
+                if current_score > 0:
+                    print(f"Строка {row_idx}: score={current_score}, keywords={found_keywords}")
 
                 # Обновляем лучший результат
                 if current_score > best_match_score:
@@ -504,19 +308,19 @@ class PriceParserApp(ttk.Toplevel):
                     best_row_content = list(headers)
 
             except Exception as e:
-                #print(f"Ошибка при анализе строки {row_idx}: {e}")
+                print(f"Ошибка при анализе строки {row_idx}: {e}")
                 continue
 
         # Устанавливаем порог для минимального score
         min_acceptable_score = 3
 
         if best_match_score >= min_acceptable_score:
-            #print(f"Автоопределение по ключевым словам: строка {best_match_row}")
-            #print(f"Score: {best_match_score}, Заголовки: {best_row_content}")
+            print(f"Автоопределение по ключевым словам: строка {best_match_row}")
+            print(f"Score: {best_match_score}, Заголовки: {best_row_content}")
             return best_match_row
         else:
-            # print(
-            #     f"Автоопределение по ключевым словам не удалось. Лучший score: {best_match_score} (требуется {min_acceptable_score})")
+            print(
+                f"Автоопределение по ключевым словам не удалось. Лучший score: {best_match_score} (требуется {min_acceptable_score})")
             return None
 
     def _auto_assign_roles(self, headers):
@@ -543,9 +347,7 @@ class PriceParserApp(ttk.Toplevel):
             ],
             "Квант": [
                 "кратность", "квант"
-            ],
-            "_box_quantity": ["коробк", "коробке", "ящик", "box", "case", "упаковк"],
-            "_block_quantity": ["блок", "блоке", "дисплей", "block", "display"]
+            ]
         }
 
         assigned_mapping = {}
@@ -834,33 +636,7 @@ class PriceParserApp(ttk.Toplevel):
             auto_assigned_mapping = self._auto_assign_roles(self.df.columns)
             print(f"Автоназначенные роли: {auto_assigned_mapping}")
 
-        quantum_row = None
         for role in self.ROLES:
-            if role.name == "Квант":
-                rowf = ttk.Frame(roles_frame)
-                rowf.pack(fill=X, pady=4, padx=6)
-                quantum_row = rowf
-
-                ttk.Label(rowf, text=role.name, width=15, anchor=W).pack(side=LEFT)
-                cmb = ttk.Combobox(rowf, values=["(не выбрано)"] + self.available_columns, width=30, bootstyle=INFO)
-                cmb.set("(не выбрано)")
-
-                if self.CONFIG and 'roles_mapping' in self.CONFIG:
-                    m = self.CONFIG.get('roles_mapping')
-                    cmb.set(m.get(role.name, "(не выбрано)"))
-                if self.quantum_config:
-                    print(f"Quantum config found: {self.quantum_config}")
-                    m = self.quantum_config.get('quantum_column')
-                    cmb.set(m)
-
-                cmb.pack(side=LEFT, padx=(6, 0))
-                cmb.bind("<<ComboboxSelected>>", partial(self._on_role_change, role, cmb))
-                self.role_comboboxes[role] = cmb
-
-                # Добавляем кнопку для расширенной настройки кванта
-                ttk.Button(rowf, text="⚙", width=3, bootstyle=INFO,
-                           command=partial(self._configure_quantum, cmb)).pack(side=LEFT, padx=(5, 0))
-                continue
             rowf = ttk.Frame(roles_frame)
             rowf.pack(fill=X, pady=4, padx=6)
             ttk.Label(rowf, text=role.name, width=15, anchor=W).pack(side=LEFT)
@@ -909,78 +685,6 @@ class PriceParserApp(ttk.Toplevel):
                     bootstyle=INFO,
                     duration=4000
                 ).show_toast()
-
-    def _configure_quantum(self, quantum_cmb):
-        """Открывает диалог для настройки сложной логики кванта"""
-        print(self.quantum_config)
-        dialog = QuantumConfigDialog(self, self.available_columns, self.quantum_config)
-        self.wait_window(dialog)
-
-        if dialog.result:
-            self.quantum_config = dialog.result
-            # Автоматически выбираем колонку кванта в основном комбобоксе
-            if self.quantum_config['quantum_column']:
-                quantum_cmb.set(self.quantum_config['quantum_column'])
-                self._update_available_columns()
-                self._update_table()
-
-            ToastNotification(
-                title="Настройка кванта",
-                message="Логика кванта настроена",
-                bootstyle=SUCCESS
-            ).show_toast()
-
-    def _calculate_quantum_value(self, row):
-        """Вычисляет значение кванта на основе конфигурации"""
-        # if not self.quantum_config:
-        #     return None
-
-        try:
-            quantum_col = self.quantum_config['quantum_column']
-            if not quantum_col or quantum_col not in row:
-                return 1
-
-            unit = str(row[quantum_col]).strip().lower()
-            if not unit:
-                return 1
-
-            # Ищем сопоставление для единицы измерения
-            for unit_pattern, target_column in self.quantum_config['unit_mappings'].items():
-                # if unit_pattern not in ["шт", "шт."]:
-                #     print(f"...{unit_pattern} - {target_column}")
-                if unit_pattern.lower() in unit or unit in unit_pattern.lower():
-                    if target_column == "1":
-                        return 1
-                    elif target_column in row and pd.notna(row[target_column]):
-                        try:
-                            return float(row[target_column])
-                        except (ValueError, TypeError):
-                            pass
-
-                    # Проверяем специальные колонки
-                    if (unit_pattern.lower() in ['кор', 'коробка', 'кор.'] and
-                            self.quantum_config['box_quantity_column'] in row):
-                        try:
-                            return float(row[self.quantum_config['box_quantity_column']])
-                        except (ValueError, TypeError):
-                            pass
-
-                    if (unit_pattern.lower() in ['бл', 'блок', 'дисплейбокс'] and
-                            self.quantum_config['block_quantity_column'] in row):
-                        try:
-                            return float(row[self.quantum_config['block_quantity_column']])
-                        except (ValueError, TypeError):
-                            pass
-
-            # Если не нашли сопоставление, пробуем распарсить как число
-            try:
-                return float(unit)
-            except (ValueError, TypeError):
-                return 1  # Значение по умолчанию
-
-        except Exception as e:
-            print(f"Ошибка вычисления кванта: {e}")
-            return 1
 
     def _auto_assign_roles_ui(self):
         """Автоматическое назначение ролей по ключевым словам (по кнопке)"""
@@ -1098,11 +802,8 @@ class PriceParserApp(ttk.Toplevel):
 
             # фильтр по названию
             if name_col:
-                try:
-                    self.df_filtered = self.df_filtered[
-                        self.df_filtered[name_col].notna() & (self.df_filtered[name_col].astype(str).str.strip() != "")]
-                except KeyError as e:
-                    print(e)
+                self.df_filtered = self.df_filtered[
+                    self.df_filtered[name_col].notna() & (self.df_filtered[name_col].astype(str).str.strip() != "")]
 
             # фильтр по цене
             def valid_price(v):
@@ -1119,29 +820,11 @@ class PriceParserApp(ttk.Toplevel):
                 return len(s) <= 10
 
             if price_col:
-                try:
-                    self.df_filtered = self.df_filtered[self.df_filtered[price_col].apply(valid_price)]
-                except KeyError as e:
-                    print(e)
+                self.df_filtered = self.df_filtered[self.df_filtered[price_col].apply(valid_price)]
 
             # Нормализация остатков
             if stock_col and stock_col in self.df_filtered.columns:
                 self.df_filtered[stock_col] = self.df_filtered[stock_col].apply(normalize_stock_value)
-
-            mapping = {role.name: cmb.get() for role, cmb in self.role_comboboxes.items() if
-                       cmb.get() != "(не выбрано)"}
-            quantum_col = mapping.get("Квант")
-
-            if quantum_col and self.quantum_config and quantum_col == self.quantum_config['quantum_column']:
-                # Применяем сложную логику для кванта
-                print("Применяем сложную логику для кванта...")
-                self.df_filtered[quantum_col] = self.df.apply(self._calculate_quantum_value, axis=1)
-            elif quantum_col:
-                # Стандартная обработка кванта
-                try:
-                    self.df_filtered[quantum_col] = pd.to_numeric(self.df_filtered[quantum_col], errors='coerce')
-                except:
-                    self.df_filtered[quantum_col] = 1
 
             # переименовываем колонки на роли
             self.df_filtered.columns = headers
@@ -1206,13 +889,11 @@ class PriceParserApp(ttk.Toplevel):
     # ----------------- сохранение -----------------
     def _save_roles(self):
         mapping = {role.name: cmb.get() for role, cmb in self.role_comboboxes.items() if cmb.get() != "(не выбрано)"}
-        print(self.quantum_config)
         crud.save_config(
             config_name=self.config_name,
             vendor_name=self.VENDOR,
             header_row=self.header_row,
-            roles_mapping=mapping,
-            quantum_config=self.quantum_config
+            roles_mapping=mapping
         )
         #to_excel_with_role_widths(self.df_filtered, self.output_file)
         ToastNotification(title="Сохранено", message=f"Настройки для {self.VENDOR} записаны в БД",
