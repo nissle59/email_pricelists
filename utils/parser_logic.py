@@ -130,6 +130,7 @@ def parse(out_file: str = "price.xlsx", days=7):
 
         dfs = []
         for letter in filtered:
+            source_path = letter.get('filepath')
             letter_date = datetime.datetime.strptime(letter.get("date"), "%Y-%m-%d %H:%M")
             cfg_id = find_matching_config(letter.get('filename'), configs)
             if cfg_id is not None:
@@ -137,8 +138,6 @@ def parse(out_file: str = "price.xlsx", days=7):
                 out_fname = f"[исходный] {vendor.name} - {config_obj.name} - {letter_date.strftime('%d.%m.%Y %H-%M')}.xlsx"
                 if config_obj.save_original:
                     try:
-                        source_path = letter.get('filepath')
-
                         if not source_path:
                             print("Путь к исходному файлу не указан")
                         elif not os.path.exists(source_path):
