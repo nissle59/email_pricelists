@@ -28,6 +28,9 @@ def add_email_filter(filter: Filters):
             s.add(v)
             s.commit()
             s.refresh(v)
+        filter.vendor_id = v.id
+        s.commit()
+        s.refresh(filter)
         return filter
 
 

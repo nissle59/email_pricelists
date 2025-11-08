@@ -833,11 +833,14 @@ class YandexIMAPClient:
     
     def get_all_prices(self, limit_by_folder=None, days=None, since_date=None,
                               before_date=None,
-                              folder="attachments", unread_only=False):
+                              folder="attachments", unread_only=False, simple_scope: Filters | None = None):
         if self.connect():
             try:
                 results = {}
-                self.db_scope: list[Filters] = list_email_filters()
+                if simple_scope:
+                    self.db_scope = [simple_scope]
+                else:
+                    self.db_scope: list[Filters] = list_email_filters()
                 senders = []
                 for rule in self.db_scope:
                     senders.extend(

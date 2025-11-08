@@ -190,7 +190,10 @@ class FilterRuleRow(ttk.Frame):
             command=self._delete_rule,
             width=8
         ).pack(side=LEFT)
-        vendor_active = self.rd_raw.vendor.active
+        try:
+            vendor_active = self.rd_raw.vendor.active
+        except AttributeError:
+            vendor_active = True
         self.toggle_btn_var = ttk.StringVar(value="Отключить" if vendor_active else "Включить")
         self.toggle_btn = ttk.Button(
             btn_frame,

@@ -12,7 +12,7 @@ from alembic import context
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 # Импортируем Base
-from utils.db import Base
+from utils.db import Base, ENGINE_URL
 
 config = context.config
 
@@ -72,7 +72,7 @@ def run_migrations_offline():
 
 def run_migrations_online():
     connectable = engine_from_config(
-        config.get_section(config.config_ini_section),
+        {"sqlalchemy.url": ENGINE_URL},
         prefix="sqlalchemy.",
         poolclass=pool.NullPool,
     )

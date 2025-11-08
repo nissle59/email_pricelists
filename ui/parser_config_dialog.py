@@ -6,10 +6,12 @@ from ttkbootstrap.toast import ToastNotification
 from ttkbootstrap.scrolled import ScrolledFrame
 import json
 
+import crud
 from crud import list_vendors, list_configs_for_vendor, get_vendor_by_name, get_vendor_name_by_id, get_config_by_name, \
     update_config, get_email_filter_by_name, set_email_filter_vendor_id, update_email_filter, save_config, \
     delete_config, list_letters, find_attachment_by_filename
 from models import Filters, ParsingConfig
+from ui.console import SimpleConsoleWindow
 from ya_client import client as email_client
 
 class ParserConfigWindow(ttk.Toplevel):
@@ -305,6 +307,11 @@ class ParserConfigWindow(ttk.Toplevel):
             {"subject": "Акция недели", "filename": "weekly_sale.xls", "date": "2024-11-03"},
             {"subject": "Остатки товаров", "filename": "stock_balance.xlsx", "date": "2024-11-01"},
         ]
+        if not self.rule_data.vendor.last_load:
+            cfgs = list_configs_for_vendor(self.rule_data.vendor.name)
+            if len(cfgs) > 0:
+                #email_client.get_all_prices(simple_scope=self.rule_data)
+                SimpleConsoleWindow(email_client.get_all_prices, simple_scope=self.rule_data, limit_by_folder=10)
         emails = []
         if self.rule_data.senders:
             if self.rule_data.vendor_id:
@@ -625,7 +632,7 @@ class ParserConfigWindow(ttk.Toplevel):
                     'config_name': config_frame.vars['config_name'].get()
                 }
                 try:
-                    print([config_frame.vars[v].get() for v in config_frame.vars])
+                    print([config_frame.vars[v] for v in config_frame.vars])
                     conf = save_config(
                         config_name=config_frame.vars['config_name'].get(),
                         vendor_name=self.rule_data.vendor.name,

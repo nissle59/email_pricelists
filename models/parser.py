@@ -40,7 +40,7 @@ class ParsingConfig(Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     name: Mapped[str] = mapped_column(String, unique=False)
     vendor_id: Mapped[int | None] = mapped_column(ForeignKey("vendors.id"))
-    header_row: Mapped[int] = mapped_column(Integer)
+    header_row: Mapped[int] = mapped_column(Integer, default=0)
     filename_template: Mapped[str | None] = mapped_column(String)
     active: Mapped[bool | None] = mapped_column(Boolean, default=True)
     to_common: Mapped[bool | None] = mapped_column(Boolean, default=True)
