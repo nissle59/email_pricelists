@@ -50,7 +50,7 @@ exe = EXE(
     bootloader_ignore_signals=False,
     strip=False,
     upx=True,
-    console=False,
+    console=True,
     icon='assets/icon.ico' if os.path.exists('assets/icon.ico') else None,
     onefile=True  # ключевой параметр для одного файла
 )

@@ -13,17 +13,18 @@ def read_excel_safe(file_path: str | Path) -> pd.DataFrame:
             return df
         except Exception as e:
             continue
-    try:
-        import xlwings as xw
-        print("Пробуем через xlwings...")
-        app = xw.App(visible=False)
-        wb = xw.Book(file_path)
-        sheet = wb.sheets[0]  # читаем первый лист
-        data = sheet.used_range.value
-        wb.close()
-        app.quit()
-        df = pd.DataFrame(data)
-        return df
-    except Exception as e2:
-        print(f"Не удалось прочитать через xlwings: {e2}")
-        raise
+    raise
+    # try:
+    #     import xlwings as xw
+    #     print("Пробуем через xlwings...")
+    #     app = xw.App(visible=False)
+    #     wb = xw.Book(file_path)
+    #     sheet = wb.sheets[0]  # читаем первый лист
+    #     data = sheet.used_range.value
+    #     wb.close()
+    #     app.quit()
+    #     df = pd.DataFrame(data)
+    #     return df
+    # except Exception as e2:
+    #     print(f"Не удалось прочитать через xlwings: {e2}")
+    #     raise
