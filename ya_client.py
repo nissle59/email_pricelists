@@ -911,14 +911,14 @@ class YandexIMAPClient:
                             print(f"\n✓ Письмо: {info['subject']}")
                             print(f"  От: {info['from']}")
                             print(f"  Дата: {info['date']}")
-                            print(f"  Отмечено как прочитанное: {'Да' if info['marked_as_read'] else 'Нет'}")
+                            #print(f"  Отмечено как прочитанное: {'Да' if info['marked_as_read'] else 'Нет'}")
                             for file_path in info['downloaded_files']:
                                 out.append({
                                     "subject": info['subject'],
                                     "filename": file_path,
                                     "date": info['date'],
                                 })
-                                file_size = os.path.getsize(file_path)
+                                file_size = os.path.getsize(os.path.join(pm.get_user_data(), file_path))
                                 print(f"  📊 {os.path.basename(file_path)} ({file_size} bytes)")
                 else:
                     print("Excel файлы не найдены")
