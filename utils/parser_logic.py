@@ -2,6 +2,7 @@ import datetime
 import json
 import os
 import shutil
+from pathlib import Path
 
 import pandas as pd
 import crud
@@ -130,12 +131,13 @@ def parse(out_file: str = "price.xlsx", days=7):
 
         dfs = []
         for letter in filtered:
-            source_path = letter.get('filepath')
+            source_path = Path(letter.get('filepath'))
+            source_ext = source_path.suffix
             letter_date = datetime.datetime.strptime(letter.get("date"), "%Y-%m-%d %H:%M")
             cfg_id = find_matching_config(letter.get('filename'), configs)
             if cfg_id is not None:
                 config_obj = next((c for c in configs if c.id == cfg_id), None)
-                out_fname = f"[исходный] {vendor.name} - {config_obj.name} - {letter_date.strftime('%d.%m.%Y %H-%M')}.xlsx"
+                out_fname = f"[исходный] {vendor.name} - {config_obj.name} - {letter_date.strftime('%d.%m.%Y %H-%M')}" + source_ext
                 if config_obj.save_original:
                     try:
                         if not source_path:

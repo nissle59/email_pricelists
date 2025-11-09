@@ -73,4 +73,9 @@ class PathManager:
         ud = self.get_app_dirs_standard()['user_data'].mkdir(parents=True, exist_ok=True)
         return self.get_app_dirs_standard()['user_data']
 
+    def get_logs(self):
+        logs = self.get_app_dirs_standard()['user_logs'].mkdir(parents=True, exist_ok=True)
+        return self.get_app_dirs_standard()['user_logs']
+
+
 pm = PathManager()

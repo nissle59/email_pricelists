@@ -6,6 +6,7 @@ import os
 import re
 from datetime import datetime, timedelta
 from email.utils import parseaddr
+from pathlib import Path
 from typing import List, Dict, Optional, Union
 import chardet
 
@@ -820,11 +821,13 @@ class YandexIMAPClient:
                 add_letter(letter)
                 if downloaded_files:
                     for f in downloaded_files:
+                        orig_f = f
+                        f = Path(pm.get_user_data() / f)
                         size = os.path.getsize(f)
                         a = Attachment(
                             letter_id=int(email_info['id']),
                             file_name=os.path.basename(f),
-                            file_path=f,
+                            file_path=orig_f,
                             size=size
                         )
                         add_attachment(a)
@@ -893,6 +896,7 @@ class YandexIMAPClient:
                     print("Excel файлы не найдены")
                 return out
             except Exception as e:
+                traceback.print_exc()
                 print(f"Ошибка при обработке писем: {e}")
                 return []
             finally:
