@@ -596,7 +596,7 @@ class YandexIMAPClient:
                 # Проверяем, существует ли файл, и добавляем суффикс если нужно
                 counter = 1
                 original_filepath = abs_filepath
-                while os.path.exists(filepath):
+                while os.path.exists(abs_filepath):
                     name, ext = os.path.splitext(original_filepath)
                     abs_filepath = f"{name}_{counter}{ext}"
                     filepath = f"{name}_{counter}{ext}"
