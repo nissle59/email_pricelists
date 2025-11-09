@@ -314,6 +314,24 @@ class YandexIMAPClient:
             print(f"Ошибка поиска писем по дате: {e}")
             return []
 
+
+    def has_excel_attachment(self, struct_data):
+        """Проверяет, есть ли в письме Excel вложения"""
+        if not struct_data:
+            return False
+
+        struct_str = str(struct_data)
+
+        # Ищем MIME-типы Excel
+        excel_types = [
+            'vnd.ms-excel',  # .xls
+            'vnd.openxmlformats-officedocument.spreadsheetml.sheet',  # .xlsx
+            'vnd.ms-excel.sheet.macroEnabled.12',  # .xlsm
+            'vnd.ms-excel.template.macroEnabled.12'  # .xltm
+        ]
+
+        return any(excel_type in struct_str for excel_type in excel_types)
+
     def get_email_details(self, email_id: str, mark_as_read: bool = False) -> Dict:
         """Получение детальной информации о письме"""
         if not self.connected:
@@ -323,18 +341,22 @@ class YandexIMAPClient:
             # =============================================================
             # БЛОК ОТМЕТКИ ПИСЕМ КАК ПРОЧИТАННЫХ
             # =============================================================
-            if mark_as_read:
-                # Этот вариант отметит письмо как прочитанное
-                status, msg_data = self.mail.fetch(email_id, "(RFC822)")
-                print(f"Письмо {email_id} будет отмечено как прочитанное")
+            print(f"--- получаем структуру письма...")
+            status, struct_data = self.mail.fetch(email_id, "(BODYSTRUCTURE)")
+
+            if status == 'OK' and struct_data and self.has_excel_attachment(struct_data[0]):
+                print(f"--- Письмо {email_id} содержит Excel вложение")
+
+                # Получаем полное содержимое письма
+                status, msg_data = self.mail.fetch(email_id, "(BODY.PEEK[])")
             else:
-                # Этот вариант НЕ отмечает письмо как прочитанное
-                status, msg_data = self.mail.fetch(email_id, "(RFC822)")
-                #status, msg_data = self.mail.fetch(email_id, "(BODY.PEEK[])")
+                return {}
             # =============================================================
 
             if status != "OK":
                 return {}
+
+            print(f"--- парсим тело письма")
 
             email_body = msg_data[0][1]
             msg = email.message_from_bytes(email_body)
@@ -371,7 +393,7 @@ class YandexIMAPClient:
         body_html = ""
         attachments = []
         excel_attachments = []
-
+        print(f"------ Обработка письма")
         if msg.is_multipart():
             for part in msg.walk():
                 content_type = part.get_content_type()
@@ -509,14 +531,14 @@ class YandexIMAPClient:
         excel_attachments = email_info.get('excel_attachments', [])
 
         if not excel_attachments:
-            print("В письме нет Excel вложений")
+            print("--- В письме нет Excel вложений")
             return downloaded_files
 
         for attachment in excel_attachments:
             try:
                 filename = attachment['filename']
                 payload = attachment['payload']
-
+                print(f"--- обработка вложения {filename}")
                 if not filename or not payload:
                     continue
 
@@ -560,8 +582,9 @@ class YandexIMAPClient:
                             approve_to_download = False
 
                 if not approve_to_download:
-                    print(f'Файл {clean_filename} не допущени к скачиванию')
+                    print(f'Файл {clean_filename} не допущен к скачиванию')
                     continue
+                print(f'--- Файл {clean_filename} допущен к скачиванию')
 
                 filepath = os.path.join(download_folder, clean_filename)
 
@@ -591,10 +614,10 @@ class YandexIMAPClient:
         # =============================================================
         # ОТМЕТКА ПИСЬМА КАК ПРОЧИТАННОГО ПОСЛЕ УСПЕШНОГО СКАЧИВАНИЯ
         # =============================================================
-        if self.mark_as_read_on_download and downloaded_files:
-            success = self.mark_email_as_read(email_info['id'])
-            if success:
-                print(f"✓ Письмо отмечено как прочитанное после успешного скачивания {len(downloaded_files)} файлов")
+        # if self.mark_as_read_on_download and downloaded_files:
+        #     success = self.mark_email_as_read(email_info['id'])
+        #     if success:
+        #         print(f"✓ Письмо отмечено как прочитанное после успешного скачивания {len(downloaded_files)} файлов")
         # =============================================================
 
         return downloaded_files
@@ -609,6 +632,7 @@ class YandexIMAPClient:
         for email_id in email_ids:
             try:
                 # Всегда используем BODY.PEEK[] при поиске писем, чтобы не отмечать как прочитанные
+                print(f"Получаем информацию о письме с ID {email_id}...")
                 email_info = self.get_email_details(email_id, mark_as_read=False)
                 #print(email_info.get('subject'), email_info.get('date'))
                 if email_info and email_info.get('excel_attachments'):
@@ -737,6 +761,9 @@ class YandexIMAPClient:
                 sender_list = senders if isinstance(senders, list) else [senders]
                 search_description += f" (отправители: {', '.join(sender_list)})"
 
+        if len(email_ids) > 0:
+            print(f"К обработке найдено {len(email_ids)} писем...")
+
         emails_with_excel = self.get_emails_with_excel_attachments(email_ids)
 
         total_downloaded = 0
@@ -744,6 +771,7 @@ class YandexIMAPClient:
 
         for i, email_info in enumerate(emails_with_excel, 1):
             raw_from = email_info['from'].strip()
+            print(f"Обработка письма {i}/{len(emails_with_excel)} {email_info['subject']}")
 
             # Извлекаем первый валидный email из строки
             match = re.search(r'[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}', raw_from)
@@ -806,7 +834,7 @@ class YandexIMAPClient:
                     'date': email_info['date'],
                     'downloaded_files': downloaded_files,
                     'excel_count': len(email_info['excel_attachments']),
-                    'marked_as_read': self.mark_as_read_on_download and bool(downloaded_files)
+                    #'marked_as_read': self.mark_as_read_on_download and bool(downloaded_files)
                 }
                 d = datetime.strptime(email_info['date'], "%a, %d %b %Y %H:%M:%S %z")
 
@@ -862,7 +890,7 @@ class YandexIMAPClient:
                             continue
                         decoded_name = decode_folder_name(folder_name)
                         print(f"Ищем в папке: {decoded_name}")
-                        self.set_mark_as_read_on_download(False)
+                        #self.set_mark_as_read_on_download(False)
                         self.select_folder(folder_name)
                         # Поиск Excel файлов
                         results.update(self.download_all_excel_files(
@@ -909,3 +937,5 @@ s = settings.get_settings()
 client = YandexIMAPClient(s.get('email_username'), s.get('email_password'), s.get('email_server', 'imap.yandex.ru'),
                           int(s.get('email_port', 993)))
 
+if __name__ == '__main__':
+    client.get_all_prices(days=30)

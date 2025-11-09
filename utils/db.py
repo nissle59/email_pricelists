@@ -27,4 +27,9 @@ Base = declarative_base(metadata=metadata)
 
 
 def init_db():
+    print(ENGINE_URL)
     Base.metadata.create_all(engine)
+
+
+if __name__ == "__main__":
+    init_db()

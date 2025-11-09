@@ -195,7 +195,7 @@ class SimpleConsoleWindow:
     def __init__(self, task_function, *args, **kwargs):
         self.window = ttk.Toplevel(None)
         self.window.title("Выполнение задачи")
-        self.window.geometry("1000x400")
+        self.window.geometry("1150x400")
 
         self.text_area = scrolledtext.ScrolledText(self.window)
         self.text_area.pack(fill=BOTH, expand=True, padx=10, pady=10)

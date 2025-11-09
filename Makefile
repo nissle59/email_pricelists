@@ -10,4 +10,4 @@ migration:
 	alembic revision --autogenerate -m "$(name)"
 
 build-mac:
-	pyinstaller main_mac.spec
+	bash build_mac_dmg.sh
