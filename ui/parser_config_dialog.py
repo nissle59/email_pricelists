@@ -307,7 +307,13 @@ class ParserConfigWindow(ttk.Toplevel):
             {"subject": "Акция недели", "filename": "weekly_sale.xls", "date": "2024-11-03"},
             {"subject": "Остатки товаров", "filename": "stock_balance.xlsx", "date": "2024-11-01"},
         ]
-        if not self.rule_data.vendor.last_load:
+        try:
+            emails_instances = list_letters(vendor_id=self.rule_data.vendor_id)
+        except Exception as e:
+            emails_instances = None
+            traceback.print_exc()
+            print(f"Error: {e}")
+        if not self.rule_data.vendor.last_load or (emails_instances is not None and len(emails_instances) == 0):
             cfgs = list_configs_for_vendor(self.rule_data.vendor.name)
             if len(cfgs) > 0:
                 #email_client.get_all_prices(simple_scope=self.rule_data)
@@ -315,7 +321,7 @@ class ParserConfigWindow(ttk.Toplevel):
         emails = []
         if self.rule_data.senders:
             if self.rule_data.vendor_id:
-                emails_instances = list_letters(self.rule_data.vendor_id)
+                emails_instances = list_letters(vendor_id=self.rule_data.vendor_id)
                 emails = [
                     {
                         "subject": email.subject,
