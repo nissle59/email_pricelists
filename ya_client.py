@@ -599,6 +599,7 @@ class YandexIMAPClient:
                 while os.path.exists(filepath):
                     name, ext = os.path.splitext(original_filepath)
                     abs_filepath = f"{name}_{counter}{ext}"
+                    filepath = f"{name}_{counter}{ext}"
                     counter += 1
 
                 with open(abs_filepath, 'wb') as f:
