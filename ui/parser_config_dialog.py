@@ -1,3 +1,4 @@
+import os.path
 import traceback
 from typing import Self, TYPE_CHECKING
 import ttkbootstrap as ttk
@@ -12,6 +13,7 @@ from crud import list_vendors, list_configs_for_vendor, get_vendor_by_name, get_
     delete_config, list_letters, find_attachment_by_filename
 from models import Filters, ParsingConfig
 from ui.console import SimpleConsoleWindow
+from utils.paths import pm
 from ya_client import client as email_client
 
 class ParserConfigWindow(ttk.Toplevel):
@@ -220,7 +222,7 @@ class ParserConfigWindow(ttk.Toplevel):
         def on_email_tree_select(event):
             selected_item = self.email_tree.selection()[0]
 
-            self.current_file = find_attachment_by_filename(self.email_tree.item(selected_item, "values")[1]).file_path
+            self.current_file = os.path.join(pm.get_user_data(), find_attachment_by_filename(self.email_tree.item(selected_item, "values")[1]).file_path)
             print(f"Selected configuration: {self.current_file}")
 
         self.email_tree.bind("<<TreeviewSelect>>", on_email_tree_select)
