@@ -3,6 +3,7 @@ import json
 import os
 import shutil
 from pathlib import Path
+from typing import Literal
 
 import pandas as pd
 import crud
@@ -27,7 +28,13 @@ def find_matching_config(filename, configs: list[ParsingConfig]):
     return None
 
 
-def filter_emails_by_rule(emails: list, filter: Filters):
+def filter_emails_by_rule(
+        emails: list,
+        filter: Filters,
+        start_dt: datetime.datetime | None = None,
+        end_dt: datetime.datetime | None = None,
+        limit: bool = False,
+        ):
     filtered = []
     bad = []
     for email in emails:
@@ -71,7 +78,18 @@ def filter_emails_by_rule(emails: list, filter: Filters):
                 continue
 
         filtered.append(email)
-    # print(json.dumps(filtered, indent=2, ensure_ascii=False))
+    if start_dt is not None and end_dt is not None:
+        out = []
+        for email in filtered:
+            dt = datetime.datetime.strptime(email['date'], "%Y-%m-%d %H:%M")
+            if start_dt <= dt <= end_dt:
+                out.append(email)
+        return out
+    if limit:
+        if filtered:
+            return [max(filtered, key=lambda x: datetime.datetime.strptime(x["date"], "%Y-%m-%d %H:%M"))]
+        else:
+            return []
     return filtered
 
 
@@ -102,16 +120,19 @@ def remove_duplicates(df: pd.DataFrame) -> pd.DataFrame:
     return df_deduped
 
 
-def parse(out_file: str = "price.xlsx", days=7):
+def parse(
+        start_dt: datetime.datetime | None = None,
+        end_dt: datetime.datetime | None = None,
+        limit: bool = False,
+):
     vendors = crud.list_vendors()
-    configs = crud.list_all_configs()
 
-    # print([c.name for c in configs])
-    # return
 
+    days = 365
 
     out_dfs = []
     for vendor in vendors:
+        configs = crud.list_configs_for_vendor(vendor.name)
         if not vendor.active:
             print(f"Парсинг поставщика {vendor.name} отключен")
             continue
@@ -127,7 +148,7 @@ def parse(out_file: str = "price.xlsx", days=7):
             for email in emails_instances
             for a in email.attachments
         ]
-        filtered = filter_emails_by_rule(emails, emailfilter)
+        filtered = filter_emails_by_rule(emails, emailfilter, start_dt, end_dt, limit)
 
         dfs = []
         for letter in filtered:
@@ -178,7 +199,7 @@ def parse(out_file: str = "price.xlsx", days=7):
         out_df = pd.concat(out_dfs)
 
         # Удаляем дубликаты
-        out_df = remove_duplicates(out_df).drop(['Дата'], axis=1)
+        out_df = remove_duplicates(out_df)#.drop(['Дата'], axis=1)
 
         print(out_df)
         to_excel_with_role_widths(out_df, pm.save_file('Объединенный прайс.xlsx'))

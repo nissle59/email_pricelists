@@ -341,11 +341,11 @@ class YandexIMAPClient:
             # =============================================================
             # БЛОК ОТМЕТКИ ПИСЕМ КАК ПРОЧИТАННЫХ
             # =============================================================
-            print(f"--- получаем структуру письма...")
+            #print(f"--- получаем структуру письма...")
             status, struct_data = self.mail.fetch(email_id, "(BODYSTRUCTURE)")
 
             if status == 'OK' and struct_data and self.has_excel_attachment(struct_data[0]):
-                print(f"--- Письмо {email_id} содержит Excel вложение")
+                #print(f"--- Письмо {email_id} содержит Excel вложение")
 
                 # Получаем полное содержимое письма
                 status, msg_data = self.mail.fetch(email_id, "(BODY.PEEK[])")
@@ -356,7 +356,7 @@ class YandexIMAPClient:
             if status != "OK":
                 return {}
 
-            print(f"--- парсим тело письма")
+            #print(f"--- парсим тело письма")
 
             email_body = msg_data[0][1]
             msg = email.message_from_bytes(email_body)
@@ -393,7 +393,7 @@ class YandexIMAPClient:
         body_html = ""
         attachments = []
         excel_attachments = []
-        print(f"------ Обработка письма")
+        #print(f"------ Обработка письма")
         if msg.is_multipart():
             for part in msg.walk():
                 content_type = part.get_content_type()
@@ -531,14 +531,14 @@ class YandexIMAPClient:
         excel_attachments = email_info.get('excel_attachments', [])
 
         if not excel_attachments:
-            print("--- В письме нет Excel вложений")
+            #print("--- В письме нет Excel вложений")
             return downloaded_files
 
         for attachment in excel_attachments:
             try:
                 filename = attachment['filename']
                 payload = attachment['payload']
-                print(f"--- обработка вложения {filename}")
+                #print(f"--- обработка вложения {filename}")
                 if not filename or not payload:
                     continue
 
@@ -556,7 +556,7 @@ class YandexIMAPClient:
                             else:
                                 app.append(True)
                         if True not in app:
-                            print(f"Несоответствие паттерну filename_contains: {email_rule.filename_contains}")
+                            #print(f"Несоответствие паттерну filename_contains: {email_rule.filename_contains}")
                             approve_to_download = False
                     if email_rule.filename_excludes not in [None, ""]:
                         filename_excludes = [r.strip() for r in email_rule.filename_excludes.lower().split(";")]
@@ -567,7 +567,7 @@ class YandexIMAPClient:
                             else:
                                 app.append(True)
                         if False in app:
-                            print(f"Несоответствие паттерну filename_excludes: {email_rule.filename_excludes}")
+                            #print(f"Несоответствие паттерну filename_excludes: {email_rule.filename_excludes}")
                             approve_to_download = False
                     if email_rule.extensions not in [None,""]:
                         app: list[bool] = []
@@ -578,13 +578,13 @@ class YandexIMAPClient:
                             else:
                                 app.append(True)
                         if True not in app:
-                            print(f"Несоответствие расширениям: {email_rule.extensions}")
+                            #print(f"Несоответствие расширениям: {email_rule.extensions}")
                             approve_to_download = False
 
                 if not approve_to_download:
-                    print(f'Файл {clean_filename} не допущен к скачиванию')
+                    #print(f'Файл {clean_filename} не допущен к скачиванию')
                     continue
-                print(f'--- Файл {clean_filename} допущен к скачиванию')
+                #print(f'--- Файл {clean_filename} допущен к скачиванию')
 
                 filepath = os.path.join(download_folder, clean_filename)
 
@@ -625,15 +625,15 @@ class YandexIMAPClient:
 
     def get_emails_with_excel_attachments(self, email_ids: List[str] = None) -> List[Dict]:
         """Получение писем с Excel вложениями из списка ID"""
-        if email_ids is None:
-            email_ids = self.search_emails("ALL")
+        # if email_ids is None:
+        #     email_ids = self.search_emails("ALL")
 
         emails_with_excel = []
 
         for email_id in email_ids:
             try:
                 # Всегда используем BODY.PEEK[] при поиске писем, чтобы не отмечать как прочитанные
-                print(f"Получаем информацию о письме с ID {email_id}...")
+                #print(f"Получаем информацию о письме с ID {email_id}...")
                 email_info = self.get_email_details(email_id, mark_as_read=False)
                 #print(email_info.get('subject'), email_info.get('date'))
                 if email_info and email_info.get('excel_attachments'):

@@ -1,5 +1,5 @@
 # ui/main_frame.py
-from datetime import datetime
+from datetime import datetime, timedelta
 
 import ttkbootstrap as ttk
 from ttkbootstrap.constants import *
@@ -15,6 +15,7 @@ from ya_client import client as email_client
 
 class MainFrame:
     def __init__(self, notebook):
+        self.dtformat = '%d.%m.%Y %H:%M'
         self.selected_vendor_var = ttk.StringVar()
         self.days_entry_var = None
         self.tab_main = ttk.Frame(notebook)
@@ -30,63 +31,169 @@ class MainFrame:
         ).pack(pady=20)
 
         # Основной контейнер
-        main_container = ttk.Frame(self.tab_main)
-        main_container.pack(fill=BOTH, expand=YES, padx=20, pady=10)
-
-        # Создаем notebook для этапов
-        self.steps_notebook = ttk.Notebook(main_container)
-        self.steps_notebook.pack(fill=BOTH, expand=YES)
+        # main_container = ttk.Frame(self.tab_main)
+        # main_container.pack(fill=BOTH, expand=YES, padx=20, pady=10)
+        #
+        # # Создаем notebook для этапов
+        # self.steps_notebook = ttk.Notebook(main_container)
+        # self.steps_notebook.pack(fill=BOTH, expand=YES)
 
         # Этап 1 - Загрузка
         self.setup_loading_tab()
 
         # Этап 2 - Конфигурация парсинга
-        self.setup_parsing_config_tab()
+        # self.setup_parsing_config_tab()
+
+    def toggle_settings(self, *args):
+        # Скрыть все настройки
+        self.period_settings.pack_forget()
+        self.last_price_settings.pack_forget()
+        self.depth_settings.pack_forget()
+
+        # Показать только активные настройки
+        if self.loading_mode.get() == "period":
+            self.period_settings.pack(fill=X)
+        elif self.loading_mode.get() == "last_price":
+            self.last_price_settings.pack(fill=X)
+        elif self.loading_mode.get() == "depth":
+            self.depth_settings.pack(fill=X)
 
     def setup_loading_tab(self):
         """Настройка вкладки загрузки прайс-листов"""
-        tab_loading = ttk.Frame(self.steps_notebook)
-        self.steps_notebook.add(tab_loading, text="1️⃣ Загрузка прайс-листов")
+        # tab_loading = ttk.Frame(self.steps_notebook)
+        # self.steps_notebook.add(tab_loading, text="1️⃣ Загрузка прайс-листов")
 
         # Период загрузки
-        period_frame = ttk.LabelFrame(tab_loading, text="Период загрузки", padding=15)
+        period_frame = ttk.LabelFrame(self.tab_main, text="Период загрузки", padding=15)
         period_frame.pack(fill=X, pady=(0, 10))
 
-        ttk.Label(period_frame, text="Загрузить данные за последние:").grid(
-            row=0, column=0, sticky=W, padx=(0, 10)
+        # Переменная для выбора режима
+        self.loading_mode = ttk.StringVar(value="period")
+
+        # Фрейм для переключателей режимов
+        mode_frame = ttk.Frame(period_frame)
+        mode_frame.pack(fill=X, pady=(0, 10))
+
+        ttk.Radiobutton(
+            mode_frame,
+            text="Загрузка по периоду",
+            variable=self.loading_mode,
+            value="period"
+        ).pack(side=LEFT, padx=(0, 20))
+
+        ttk.Radiobutton(
+            mode_frame,
+            text="Загрузка по последнему прайсу",
+            variable=self.loading_mode,
+            value="last_price"
+        ).pack(side=LEFT, padx=(0, 20))
+
+        ttk.Radiobutton(
+            mode_frame,
+            text="Загрузка с глубиной N дней",
+            variable=self.loading_mode,
+            value="depth"
+        ).pack(side=LEFT)
+
+        # Фрейм для настроек каждого режима
+        self.settings_frame = ttk.Frame(period_frame)
+        self.settings_frame.pack(fill=X)
+
+        # Режим 1: Загрузка по периоду
+        self.period_settings = ttk.Frame(self.settings_frame)
+        self.period_settings.pack(fill=X)
+
+        # Дата и время начала
+        ttk.Label(self.period_settings, text="С:").grid(row=0, column=0, padx=(0, 5), sticky=W)
+        self.start_date_entry = ttk.DateEntry(
+            self.period_settings,
+            width=12,
+            dateformat=self.dtformat,
+            borderwidth=2
         )
+        self.start_date_entry.grid(row=0, column=1, padx=(0, 10))
+
+        # self.start_time_var = ttk.StringVar(value="00:00")
+        # self.start_time_entry = ttk.Entry(self.period_settings, width=8, textvariable=self.start_time_var)
+        # self.start_time_entry.grid(row=0, column=2, padx=(0, 10))
+        # ttk.Label(self.period_settings, text="(чч:мм)").grid(row=0, column=3, padx=(0, 15), sticky=W)
+
+        # Дата и время окончания
+        ttk.Label(self.period_settings, text="По:").grid(row=0, column=4, padx=(0, 5), sticky=W)
+        self.end_date_entry = ttk.DateEntry(
+            self.period_settings,
+            width=12,
+            dateformat=self.dtformat,
+            borderwidth=2
+        )
+        self.end_date_entry.grid(row=0, column=5, padx=(0, 10))
+
+        # self.end_time_var = ttk.StringVar(value="23:59")
+        # self.end_time_entry = ttk.Entry(self.period_settings, width=8, textvariable=self.end_time_var)
+        # self.end_time_entry.grid(row=0, column=6, padx=(0, 10))
+        # ttk.Label(self.period_settings, text="(чч:мм)").grid(row=0, column=7, sticky=W)
+
+        # Установка значений по умолчанию (now()-3 дня по now())
+        default_start = datetime.now() - timedelta(days=3)
+        default_end = datetime.now()
+
+        self.start_date_entry.set_date(default_start)
+        self.end_date_entry.set_date(default_end)
+
+        # Валидация для времени
+        # add_regex_validation(self.start_time_entry, r'^([01]?[0-9]|2[0-3]):[0-5][0-9]$')
+        # add_regex_validation(self.end_time_entry, r'^([01]?[0-9]|2[0-3]):[0-5][0-9]$')
+
+        # Режим 2: Загрузка по последнему прайсу (без дополнительных настроек)
+        self.last_price_settings = ttk.Frame(self.settings_frame)
+        self.last_price_settings.pack(fill=X)
+        ttk.Label(self.last_price_settings,
+                  text="Будут загружены данные из последнего доступного прайс-листа поставщика").pack(anchor=W)
+
+        # Режим 3: Загрузка с глубиной N дней
+        self.depth_settings = ttk.Frame(self.settings_frame)
+        self.depth_settings.pack(fill=X)
+
+        ttk.Label(self.depth_settings, text="Глубина загрузки:").grid(row=0, column=0, sticky=W, padx=(0, 10))
         self.days_entry_var = ttk.StringVar(value="7")
-        self.days_entry = ttk.Entry(period_frame, width=10, textvariable=self.days_entry_var)
-
-        #self.days_entry.insert(0, "7")  # По умолчанию 7 дней
+        self.days_entry = ttk.Entry(self.depth_settings, width=10, textvariable=self.days_entry_var)
         self.days_entry.grid(row=0, column=1, padx=(0, 10))
-
-        ttk.Label(period_frame, text="дней").grid(row=0, column=2, sticky=W)
+        ttk.Label(self.depth_settings, text="дней").grid(row=0, column=2, sticky=W)
 
         # Валидация - только цифры
         add_regex_validation(self.days_entry, r'^\d+$')
 
+        # Привязка функции переключения к изменению режима
+        self.loading_mode.trace('w', self.toggle_settings)
+
+        # Инициализация начального состояния
+        self.toggle_settings()
+
+        # # Период загрузки
+        # period_frame = ttk.LabelFrame(tab_loading, text="Период загрузки", padding=15)
+        # period_frame.pack(fill=X, pady=(0, 10))
+        #
+        # ttk.Label(period_frame, text="Загрузить данные за последние:").grid(
+        #     row=0, column=0, sticky=W, padx=(0, 10)
+        # )
+        # self.days_entry_var = ttk.StringVar(value="7")
+        # self.days_entry = ttk.Entry(period_frame, width=10, textvariable=self.days_entry_var)
+        #
+        # #self.days_entry.insert(0, "7")  # По умолчанию 7 дней
+        # self.days_entry.grid(row=0, column=1, padx=(0, 10))
+        #
+        # ttk.Label(period_frame, text="дней").grid(row=0, column=2, sticky=W)
+        #
+        # # Валидация - только цифры
+        # add_regex_validation(self.days_entry, r'^\d+$')
+
         # Выбор поставщиков
-        suppliers_frame = ttk.LabelFrame(tab_loading, text="Выбор поставщиков", padding=15)
+        suppliers_frame = ttk.LabelFrame(self.tab_main, text="Поставщики", padding=15)
         suppliers_frame.pack(fill=BOTH, expand=YES, pady=(0, 10))
 
         # Фрейм с кнопками управления выбором
         suppliers_controls = ttk.Frame(suppliers_frame)
         suppliers_controls.pack(fill=X, pady=(0, 10))
-
-        # ttk.Button(
-        #     suppliers_controls,
-        #     text="Выбрать всех",
-        #     bootstyle="success-outline",
-        #     command=self.select_all_suppliers
-        # ).pack(side=LEFT, padx=(0, 5))
-        #
-        # ttk.Button(
-        #     suppliers_controls,
-        #     text="Снять выделение",
-        #     bootstyle="warning-outline",
-        #     command=self.deselect_all_suppliers
-        # ).pack(side=LEFT, padx=(0, 5))
 
         # Таблица поставщиков
         columns = [
@@ -96,23 +203,25 @@ class MainFrame:
             {"text": "Последняя загрузка", "stretch": True}
         ]
 
-        self.vendors_list = [[str(vendor.id), vendor.name, "Да" if vendor.active else "Нет", vendor.last_load.strftime('%Y-%m-%d %H:%M:%S') if vendor.last_load else ''] for vendor in list_vendors()]
+        self.vendors_list = [[str(vendor.id), vendor.name, "Да" if vendor.active else "Нет",
+                              vendor.last_load.strftime('%Y-%m-%d %H:%M:%S') if vendor.last_load else ''] for vendor in
+                             list_vendors()]
 
         self.suppliers_table = Tableview(
             suppliers_frame,
             coldata=columns,
             rowdata=self.vendors_list,
-            paginated=True,
-            searchable=True,
+            # paginated=True,
+            # searchable=True,
             bootstyle=PRIMARY,
-            #stripecolor=("gray", None),
+            # stripecolor=("gray", None),
         )
         self.suppliers_table.pack(fill=BOTH, expand=YES)
 
         # Кнопка запуска загрузки
         ttk.Button(
-            tab_loading,
-            text="🚀 Начать загрузку",
+            self.tab_main,
+            text="🚀 Начать",
             bootstyle="success",
             command=self.start_loading,
             width=20
@@ -120,7 +229,7 @@ class MainFrame:
 
         # Прогресс бар загрузки
         self.loading_progress = ttk.Progressbar(
-            tab_loading,
+            self.tab_main,
             bootstyle="success-striped",
             mode='determinate'
         )
@@ -128,7 +237,7 @@ class MainFrame:
 
         # Статус загрузки
         self.loading_status = ttk.Label(
-            tab_loading,
+            self.tab_main,
             text="Готов к загрузке",
             font=("Helvetica", 10)
         )
@@ -179,34 +288,13 @@ class MainFrame:
             paginated=True,
             searchable=True,
             bootstyle=PRIMARY,
-            #stripecolor=("gray", None),
+            # stripecolor=("gray", None),
         )
         self.config_table.pack(fill=BOTH, expand=YES)
 
         # Кнопки управления конфигурациями
         buttons_frame = ttk.Frame(config_frame)
         buttons_frame.pack(fill=X, pady=(10, 0))
-
-        # ttk.Button(
-        #     buttons_frame,
-        #     text="✏️ Редактировать конфигурацию",
-        #     bootstyle="primary",
-        #     command=self.edit_config
-        # ).pack(side=LEFT, padx=(0, 5))
-        #
-        # ttk.Button(
-        #     buttons_frame,
-        #     text="🔄 Применить изменения",
-        #     bootstyle="success",
-        #     command=self.apply_config_changes
-        # ).pack(side=LEFT, padx=(0, 5))
-        #
-        # ttk.Button(
-        #     buttons_frame,
-        #     text="➕ Новая конфигурация",
-        #     bootstyle="info",
-        #     command=self.create_new_config
-        # ).pack(side=LEFT, padx=(0, 5))
 
         # Кнопка запуска парсинга
         ttk.Button(
@@ -245,13 +333,41 @@ class MainFrame:
 
     def start_loading(self):
         """Запуск загрузки прайс-листов"""
+
         def wrapper_loading():
-            email_client.get_all_prices(days=int(self.days_entry_var.get()))
+            start_dt = self.start_date_entry.get_date()
+            end_dt = self.end_date_entry.get_date()
+            days_depth = int(self.days_entry_var.get())
+
+            if self.loading_mode.get() == 'period':
+                print('Загрузка и парсинг по периоду')
+                email_client.get_all_prices(since_date=start_dt, before_date=end_dt)
+            elif self.loading_mode.get() == 'depth':
+                print('Загрузка и парсинг по глубине')
+                email_client.get_all_prices(days=days_depth)
+            else:
+                print('Загрузка и парсинг по последнему прайсу')
+                email_client.get_all_prices(limit_by_folder=10)
+
             for vid, _, _, _ in self.vendors_list:
                 set_vendor_last_load(vid, datetime.now())
-            self.vendors_list = [[str(vendor.id), vendor.name, "Да" if vendor.active else "Нет", vendor.last_load.strftime('%Y-%m-%d %H:%M:%S') if vendor.last_load else ''] for vendor in list_vendors()]
+            self.vendors_list = [[str(vendor.id), vendor.name, "Да" if vendor.active else "Нет",
+                                  vendor.last_load.strftime('%Y-%m-%d %H:%M:%S') if vendor.last_load else ''] for vendor
+                                 in list_vendors()]
             self.suppliers_table.delete_rows()
             self.suppliers_table.insert_rows(0, self.vendors_list)
+
+            if self.loading_mode.get() == 'period':
+                parse(start_dt=start_dt, end_dt=end_dt)
+            elif self.loading_mode.get() == 'depth':
+                parse()
+            else:
+                parse(limit=True)
+            ToastNotification(
+                title="Сохранено",
+                message=f"Прайс-лист сохранён",
+                bootstyle=SUCCESS
+            ).show_toast()
 
         SimpleConsoleWindow(wrapper_loading)
 
@@ -288,6 +404,7 @@ class MainFrame:
 
     def start_parsing(self):
         """Запуск парсинга"""
+
         def wrapper_parse():
             fname = 'price.xlsx'
             days_depth = 7
