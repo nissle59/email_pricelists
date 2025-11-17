@@ -15,7 +15,7 @@ from ya_client import client as email_client
 
 class MainFrame:
     def __init__(self, notebook):
-        self.dtformat = '%d.%m.%Y %H:%M'
+        self.dtformat = '%d.%m.%Y'
         self.selected_vendor_var = ttk.StringVar()
         self.days_entry_var = None
         self.tab_main = ttk.Frame(notebook)
@@ -340,6 +340,8 @@ class MainFrame:
             days_depth = int(self.days_entry_var.get())
 
             if self.loading_mode.get() == 'period':
+                if end_dt == start_dt:
+                    end_dt = end_dt + timedelta(days=1)
                 print('Загрузка и парсинг по периоду')
                 email_client.get_all_prices(since_date=start_dt, before_date=end_dt)
             elif self.loading_mode.get() == 'depth':
