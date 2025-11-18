@@ -15,14 +15,15 @@ def normalize_stock_value(value) -> Union[int, str]:
         return int(value)
 
     value_str = str(value).strip().upper()
-    value_str = re.sub(r'[БОЛЕЕ|БОЛЬШЕ|ОКОЛО|ПРИМЕРНО|~|ПРИБЛИЗИТЕЛЬНО]', '', value_str, flags=re.IGNORECASE)
+    #value_str = re.sub(r'[ОКОЛО|ПРИМЕРНО|~|ПРИБЛИЗИТЕЛЬНО]', '', value_str, flags=re.IGNORECASE)
+    #value_str = re.sub(r'[БОЛЕЕ|БОЛЬШЕ]', '', value_str, flags=re.IGNORECASE)
     value_str = value_str.replace(' ', '')
 
     numbers = re.findall(r'\d+', value_str)
 
     if numbers:
         stock_value = int(numbers[0])
-        if any(symbol in value_str for symbol in ['>', '+', '≥']):
+        if any(symbol in value_str for symbol in ['БОЛЕЕ', 'БОЛЬШЕ', '>', '+', '≥']):
             return f"{stock_value}+"
         else:
             return stock_value

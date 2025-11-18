@@ -10,6 +10,7 @@ from openpyxl import load_workbook
 
 from models import ParsingConfig
 from utils.paths import pm
+from utils.stock_normalizer import normalize_stock_value
 
 
 def old_to_excel_with_role_widths(df: pd.DataFrame, filename: str, widths: dict | None = None):
@@ -209,6 +210,11 @@ def apply_parser_settings(df_original: pd.DataFrame, settings: ParsingConfig, ve
             name_role = r
         elif r.lower() in ["закупочная цена"]:
             price_role = r
+
+    stock_col = roles_mapping.get("Остаток")
+
+    if stock_col and stock_col in df_filtered.columns:
+        df_filtered[stock_col] = df_filtered[stock_col].apply(normalize_stock_value)
 
     quantum_col = roles_mapping.get("Квант")
 
