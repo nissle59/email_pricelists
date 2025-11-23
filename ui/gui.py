@@ -5,7 +5,7 @@ from crud import get_settings
 from ui.about_frame import create_about_frame
 from ui.main_frame import MainFrame
 from ui.settings_frame import create_settings_frame
-from ya_client import YandexIMAPClient
+from ya_client import OptimizedYandexIMAPClient
 
 
 class App(ttk.Window):
@@ -18,7 +18,7 @@ class App(ttk.Window):
         )
         s = get_settings()
         #print(s)
-        self.email_client = YandexIMAPClient(s.get('email_username'), s.get('email_password'))
+        self.email_client = OptimizedYandexIMAPClient(s.get('email_username'), s.get('email_password'))
         self.create_tabs()
 
     def create_tabs(self):

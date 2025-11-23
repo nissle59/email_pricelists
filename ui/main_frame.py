@@ -1,6 +1,6 @@
 # ui/main_frame.py
-from datetime import datetime, timedelta
-
+from datetime import datetime, timedelta, timezone
+import time
 import ttkbootstrap as ttk
 from ttkbootstrap.constants import *
 from ttkbootstrap.tableview import Tableview
@@ -12,6 +12,30 @@ from ui.console import ConsoleWindow, SimpleConsoleWindow
 from utils.parser_logic import parse
 from ya_client import client as email_client
 
+
+class ValidatedDateEntry(ttk.DateEntry):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.bind('<FocusOut>', self._validate_input)
+
+    def _validate_input(self, event=None):
+        """Валидирует ввод и обновляет дату"""
+        try:
+            date_text = self.entry.get()
+            if date_text:
+                # Пытаемся распарсить дату согласно формату
+                parsed_date = datetime.strptime(date_text, self.dateformat).date()
+                # Устанавливаем корректную дату
+                self.set_date(parsed_date)
+        except:
+            # Если дата некорректна, можно установить дату по умолчанию
+            # или оставить как есть
+            pass
+
+    def get_validated_date(self):
+        """Получает валидированную дату"""
+        self._validate_input()
+        return self.get_date()
 
 class MainFrame:
     def __init__(self, notebook):
@@ -105,33 +129,35 @@ class MainFrame:
 
         # Дата и время начала
         ttk.Label(self.period_settings, text="С:").grid(row=0, column=0, padx=(0, 5), sticky=W)
-        self.start_date_entry = ttk.DateEntry(
+        self.start_date_entry = ValidatedDateEntry(
             self.period_settings,
             width=12,
             dateformat=self.dtformat,
-            borderwidth=2
+            borderwidth=2,
+            firstweekday=0,  # ключевой параметр!
         )
         self.start_date_entry.grid(row=0, column=1, padx=(0, 10))
 
-        # self.start_time_var = ttk.StringVar(value="00:00")
-        # self.start_time_entry = ttk.Entry(self.period_settings, width=8, textvariable=self.start_time_var)
-        # self.start_time_entry.grid(row=0, column=2, padx=(0, 10))
-        # ttk.Label(self.period_settings, text="(чч:мм)").grid(row=0, column=3, padx=(0, 15), sticky=W)
+        self.start_time_var = ttk.StringVar(value="00:00")
+        self.start_time_entry = ttk.Entry(self.period_settings, width=8, textvariable=self.start_time_var)
+        self.start_time_entry.grid(row=0, column=2, padx=(0, 10))
+        ttk.Label(self.period_settings, text="(чч:мм)").grid(row=0, column=3, padx=(0, 15), sticky=W)
 
         # Дата и время окончания
         ttk.Label(self.period_settings, text="По:").grid(row=0, column=4, padx=(0, 5), sticky=W)
-        self.end_date_entry = ttk.DateEntry(
+        self.end_date_entry = ValidatedDateEntry(
             self.period_settings,
             width=12,
             dateformat=self.dtformat,
-            borderwidth=2
+            borderwidth=2,
+            firstweekday=0,  # ключевой параметр!
         )
         self.end_date_entry.grid(row=0, column=5, padx=(0, 10))
 
-        # self.end_time_var = ttk.StringVar(value="23:59")
-        # self.end_time_entry = ttk.Entry(self.period_settings, width=8, textvariable=self.end_time_var)
-        # self.end_time_entry.grid(row=0, column=6, padx=(0, 10))
-        # ttk.Label(self.period_settings, text="(чч:мм)").grid(row=0, column=7, sticky=W)
+        self.end_time_var = ttk.StringVar(value="23:59")
+        self.end_time_entry = ttk.Entry(self.period_settings, width=8, textvariable=self.end_time_var)
+        self.end_time_entry.grid(row=0, column=6, padx=(0, 10))
+        ttk.Label(self.period_settings, text="(чч:мм)").grid(row=0, column=7, sticky=W)
 
         # Установка значений по умолчанию (now()-3 дня по now())
         default_start = datetime.now() - timedelta(days=3)
@@ -335,14 +361,28 @@ class MainFrame:
         """Запуск загрузки прайс-листов"""
 
         def wrapper_loading():
-            start_dt = self.start_date_entry.get_date()
-            end_dt = self.end_date_entry.get_date()
+            start_hours, start_minutes = self.start_time_var.get().split(':')
+            start_hours = int(start_hours)
+            start_minutes = int(start_minutes)
+            end_hours, end_minutes = self.end_time_var.get().split(":")
+            end_hours = int(end_hours)
+            end_minutes = int(end_minutes)
+            start_dt = self.start_date_entry.get_validated_date() + timedelta(hours=start_hours, minutes=start_minutes)
+            end_dt = self.end_date_entry.get_validated_date() + timedelta(hours=end_hours, minutes=end_minutes)
+            # Получаем смещение временной зоны в секундах
+            utc_offset_sec = time.localtime().tm_gmtoff
+            system_timezone = timezone(timedelta(seconds=utc_offset_sec))
+
+            # Добавляем временную зону
+            start_dt = start_dt.replace(tzinfo=system_timezone)
+            end_dt = end_dt.replace(tzinfo=system_timezone)
+
             days_depth = int(self.days_entry_var.get())
 
             if self.loading_mode.get() == 'period':
                 if end_dt == start_dt:
                     end_dt = end_dt + timedelta(days=1)
-                print('Загрузка и парсинг по периоду')
+                print(f'Загрузка и парсинг по периоду {start_dt.strftime("%d.%m.%Y %H:%M")} - {end_dt.strftime("%d.%m.%Y %H:%M")}')
                 email_client.get_all_prices(since_date=start_dt, before_date=end_dt)
             elif self.loading_mode.get() == 'depth':
                 print('Загрузка и парсинг по глубине')
@@ -370,7 +410,7 @@ class MainFrame:
                 message=f"Прайс-лист сохранён",
                 bootstyle=SUCCESS
             ).show_toast()
-
+        #wrapper_loading()
         SimpleConsoleWindow(wrapper_loading)
 
     def on_supplier_selected(self, event):

@@ -4,7 +4,7 @@ import pandas as pd
 import re
 import json
 
-from openpyxl.styles import Side, Border, PatternFill, Font
+from openpyxl.styles import Side, Border, PatternFill, Font, Alignment
 from openpyxl.utils import get_column_letter
 from openpyxl import load_workbook
 
@@ -56,6 +56,7 @@ def to_excel_with_role_widths(df: pd.DataFrame, filename: str, widths: dict | No
         "Наименование": 100,
         "Артикул": 18,
         "Цена": 16,
+        "Дата": 20,
         "Остаток": 16,
         "(?) Бренд": 18,
         "(?) РРЦ": 16
@@ -63,10 +64,35 @@ def to_excel_with_role_widths(df: pd.DataFrame, filename: str, widths: dict | No
     if not widths:
         widths = role_widths
 
+    for col in df.columns:
+        if pd.api.types.is_datetime64_any_dtype(df[col]):
+            # Убираем временные зоны, если они есть
+            df[col] = df[col].dt.tz_localize(None)
     # Если есть колонка "Поставщик", перемещаем ее в конец
-    if "Поставщик" in df.columns:
-        cols = [col for col in df.columns if col != "Поставщик"] + ["Поставщик"]
-        df = df[cols]
+    # if "Поставщик" in df.columns:
+    #     cols = [col for col in df.columns if col != "Поставщик"] + ["Поставщик"]
+    #     df = df[cols]
+
+    # Жестко задаем порядок колонок
+    priority_columns = ["Артикул", "Наименование", "Закупочная цена"]
+    last_columns = ["Поставщик", "Дата"]
+
+    # Создаем новый порядок колонок
+    current_columns = list(df.columns)
+
+    # Приоритетные колонки (в указанном порядке)
+    ordered_columns = [col for col in priority_columns if col in current_columns]
+
+    # Остальные колонки (кроме тех, что уже добавлены и кроме последних)
+    remaining_columns = [col for col in current_columns
+                         if col not in ordered_columns and col not in last_columns]
+
+    # Последние колонки
+    ordered_columns.extend(remaining_columns)
+    ordered_columns.extend([col for col in last_columns if col in current_columns])
+
+    # Применяем новый порядок
+    df = df[ordered_columns]
 
     # Сохраняем DataFrame в Excel
     df.to_excel(filename, index=False)
@@ -98,12 +124,15 @@ def to_excel_with_role_widths(df: pd.DataFrame, filename: str, widths: dict | No
         cell.fill = header_fill
         cell.border = thin_border
         cell.font = Font(bold=True)
-
+    right_align = Alignment(horizontal='right')
     # Применяем границы ко всем ячейкам с данными
     if len(df) > 0:
         for row in ws.iter_rows(min_row=1, max_row=len(df) + 1, max_col=len(df.columns)):
             for cell in row:
                 cell.border = thin_border
+                # Если это колонка "Остаток" - выравниваем по правому краю
+                if cell.column_letter == get_column_letter(list(df.columns).index("Остаток") + 1) and cell.row > 1:
+                    cell.alignment = right_align
 
     # Сохраняем изменения
     wb.save(filename)

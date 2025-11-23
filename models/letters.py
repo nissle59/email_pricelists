@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import datetime, timezone
 
 from sqlalchemy import Integer, String, DateTime, ForeignKey
 from sqlalchemy.orm import relationship, mapped_column, Mapped
@@ -13,10 +13,20 @@ class Letter(Base):
     vendor_id: Mapped[int] = mapped_column(Integer, ForeignKey('vendors.id'), index=True)
     sender: Mapped[str] = mapped_column(String)
     subject: Mapped[str] = mapped_column(String)
-    date: Mapped[datetime] = mapped_column(DateTime)
+    date: Mapped[datetime] = mapped_column(DateTime(timezone=True))
 
     attachments: Mapped[list["Attachment"]] = relationship(back_populates="letter", cascade="all, delete-orphan")
     vendor: Mapped["Vendor"] = relationship(back_populates="letters")
+
+    def __init__(self, **kwargs):
+        if 'date' in kwargs and kwargs['date'] is not None:
+            # Приводим к UTC, если дата не наивная
+            if kwargs['date'].tzinfo is not None:
+                kwargs['date'] = kwargs['date'].astimezone(timezone.utc)
+            # Или устанавливаем UTC для наивной даты
+            elif kwargs['date'].tzinfo is None:
+                kwargs['date'] = kwargs['date'].replace(tzinfo=timezone.utc)
+        super().__init__(**kwargs)
 
 
 class Attachment(Base):

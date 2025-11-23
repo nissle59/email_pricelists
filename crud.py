@@ -1,6 +1,8 @@
 # crud.py
 import json
+import os
 from datetime import datetime, timedelta
+from pathlib import Path
 
 from sqlalchemy import select, update
 from sqlalchemy.exc import NoResultFound, IntegrityError
@@ -9,6 +11,7 @@ from sqlalchemy.orm import selectinload, joinedload
 from models.email import RefFiltersConfigs
 from utils.db import SessionLocal
 from models import Role, Vendor, ParsingConfig, RoleMapping, Filters, Settings, Letter, Attachment
+from utils.paths import pm
 
 
 def list_email_filters():
@@ -31,6 +34,7 @@ def add_email_filter(filter: Filters):
         filter.vendor_id = v.id
         s.commit()
         s.refresh(filter)
+        filter_changed(filter.id)
         return filter
 
 
@@ -65,6 +69,19 @@ def update_email_filter(filter_id: int, filter: Filters):
     with SessionLocal() as s:
         db_filter: Filters = s.query(Filters).filter(Filters.id == filter_id).first()
         if db_filter:
+            # Сохраняем старые значения для сравнения
+            old_values = {
+                'name': db_filter.name,
+                'subject_contains': db_filter.subject_contains,
+                'subject_excludes': db_filter.subject_excludes,
+                'filename_contains': db_filter.filename_contains,
+                'filename_excludes': db_filter.filename_excludes,
+                'senders': db_filter.senders,
+                'extensions': db_filter.extensions,
+                'active': db_filter.active
+            }
+
+            # Обновляем значения
             db_filter.name = filter.name
             db_filter.subject_contains = filter.subject_contains
             db_filter.subject_excludes = filter.subject_excludes
@@ -72,9 +89,25 @@ def update_email_filter(filter_id: int, filter: Filters):
             db_filter.filename_excludes = filter.filename_excludes
             db_filter.senders = filter.senders
             db_filter.extensions = filter.extensions
-            db_filter.active = db_filter.active
+            db_filter.active = filter.active  # Исправлено: было db_filter.active
+
             s.commit()
             s.refresh(db_filter)
+
+            # Сравниваем старые и новые значения
+            new_values = {
+                'name': db_filter.name,
+                'subject_contains': db_filter.subject_contains,
+                'subject_excludes': db_filter.subject_excludes,
+                'filename_contains': db_filter.filename_contains,
+                'filename_excludes': db_filter.filename_excludes,
+                'senders': db_filter.senders,
+                'extensions': db_filter.extensions,
+                'active': db_filter.active
+            }
+
+            if old_values != new_values:
+                filter_changed(filter_id)
             return db_filter
         else:
             raise NoResultFound("Filter not found")
@@ -92,6 +125,7 @@ def delete_email_filter(filter_id: int):
                 s.delete(v)
                 s.commit()
                 s.refresh(v)
+            filter_changed(filter_id)
             return True
         else:
             raise NoResultFound("Filter not found")
@@ -183,6 +217,16 @@ def toggle_vendor(id: int):
 def list_vendors() -> list[Vendor]:
     with SessionLocal() as s:
         return s.query(Vendor).order_by(Vendor.name).all()
+
+
+def cfg_changed(id: int):
+    with open(Path(pm.get_user_data() / str(id)), "w") as f:
+        f.write(datetime.now().isoformat())
+
+
+def filter_changed(id: int):
+    with open(Path(pm.get_user_data() / f"v{id}"), "w") as f:
+        f.write(datetime.now().isoformat())
 
 
 def set_vendor_last_load(vendor_id: int, last_load: datetime):
@@ -303,6 +347,7 @@ def save_config(
             s.flush()
             # добавляем mappings ниже (поскольку их не было)
             existing = {}
+            cfg_changed(cfg.id)
         else:
             # обновляем header_row и vendor_id при изменении
             updated = False
@@ -341,6 +386,7 @@ def save_config(
                 # ничего менять не нужно — завершаем (но всё равно коммитим возможные vendor/header изменения)
                 if updated:
                     s.add(cfg)
+                    cfg_changed(cfg.id)
                 s.commit()
                 s.refresh(cfg)
                 return cfg
@@ -373,6 +419,7 @@ def save_config(
                 for r in rows:
                     s.delete(r)
                 s.flush()
+                cfg_changed(cfg.id)
 
             # Для каждой требуемой роли — обновим или создадим mapping
             for role_name, col_name in roles_mapping.items():
@@ -383,6 +430,7 @@ def save_config(
                     role = Role(name=role_name, required=False)
                     s.add(role)
                     s.flush()  # чтобы получить role.id
+                    cfg_changed(cfg.id)
 
                 # найдем существующий RoleMapping для (cfg.id, role.id)
                 stmt_map = (
@@ -398,6 +446,7 @@ def save_config(
                         mapping = RoleMapping(config_id=cfg.id, role_id=role.id, column_name=col_name)
                         s.add(mapping)
                         s.flush()
+                        cfg_changed(cfg.id)
                     except IntegrityError:
                         s.rollback()
                         # попытка создать еще раз — на случай гонки
@@ -417,6 +466,7 @@ def save_config(
                     if mapping.column_name != col_name:
                         mapping.column_name = col_name
                         s.add(mapping)
+                        cfg_changed(cfg.id)
 
         # --- 4. Финализируем ---
         s.commit()
@@ -431,6 +481,7 @@ def delete_config(config_id: int):
         if cfg:
             s.delete(cfg)
             s.commit()
+            cfg_changed(config_id)
             return True
         else:
             return False
@@ -464,6 +515,22 @@ def list_configs_for_vendor(vendor_name: str) -> list[ParsingConfig]:
             select(ParsingConfig)
             .join(ParsingConfig.vendor)  # Предполагаем отношение vendor в ParsingConfig
             .where(Vendor.name == vendor_name)
+            .options(
+                selectinload(ParsingConfig.mappings)
+                .selectinload(RoleMapping.role)
+            )
+        )
+
+        result = session.execute(stmt)
+        return list(result.scalars().all())
+
+
+def list_configs_for_vendor_id(vendor_id: int) -> list[ParsingConfig]:
+    with SessionLocal() as session:
+        stmt = (
+            select(ParsingConfig)
+            .join(ParsingConfig.vendor)  # Предполагаем отношение vendor в ParsingConfig
+            .where(Vendor.id == vendor_id)
             .options(
                 selectinload(ParsingConfig.mappings)
                 .selectinload(RoleMapping.role)
@@ -530,6 +597,16 @@ def add_letter(letter: Letter):
         return letter.id
 
 
+def update_letter(letter: Letter):
+    with SessionLocal() as s:
+        s.query(Letter).filter(Letter.letter_id == letter.letter_id).update(
+            {k: v for k, v in letter.__dict__.items()
+             if not k.startswith('_') and k != 'id'}
+        )
+        s.commit()
+        return letter.id
+
+
 def list_letters(vendor_id: int | None = None, days: int | None = None):
     with SessionLocal() as s:
         q = (
@@ -549,9 +626,12 @@ def find_attachment_by_filename(filename: str):
         return s.query(Attachment).filter(Attachment.file_name == filename).first()
 
 
-def list_letters_email_ids():
+def list_letters_email_ids(vendor_ids: list[int] | None):
     with SessionLocal() as s:
-        return [l[0] for l in s.query(Letter.letter_id).all()]
+        stmt = select(Letter.letter_id)
+        if vendor_ids:
+            stmt = stmt.where(Letter.vendor_id.in_(vendor_ids))
+        return s.scalars(stmt).all()
 
 
 def add_attachment(attachment: Attachment):
@@ -567,3 +647,32 @@ def list_attachments_by_vendor(vendor_id: int):
         letters = s.query(Letter).options(selectinload(Letter.attachments)).filter(Letter.vendor_id == vendor_id).all()
         attachments = [a for l in letters for a in l.attachments]
         return attachments
+
+
+def list_attachments_by_letter(letter_id: int):
+    with SessionLocal() as s:
+        attachments = s.query(Attachment).filter(Attachment.letter_id == letter_id).all()
+        return attachments
+
+
+def delete_attachments_by_letter(letter_id: int):
+    with SessionLocal() as s:
+        attachments = s.query(Attachment).filter(Attachment.letter_id == letter_id).all()
+
+        for att in attachments:
+            # Удаление файла
+            if att.file_path:
+                try:
+                    if os.path.exists(att.file_path):
+                        os.remove(att.file_path)
+                        print(f"Файл {att.file_path} успешно удален")
+                    else:
+                        print(f"Файл {att.file_path} не существует")
+                except Exception as e:
+                    print(f"Ошибка при удалении файла {att.file_path}: {e}")
+                    # Можно продолжить удаление записей из БД даже если файл не удален
+                    # или прервать операцию в зависимости от требований
+
+            s.delete(att)
+
+        s.commit()

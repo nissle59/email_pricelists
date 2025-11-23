@@ -2,6 +2,7 @@ import datetime
 import json
 import os
 import shutil
+import time
 from pathlib import Path
 from typing import Literal
 
@@ -35,8 +36,11 @@ def filter_emails_by_rule(
         end_dt: datetime.datetime | None = None,
         limit: bool = False,
         ):
-    filtered = []
     bad = []
+    configs = crud.list_configs_for_vendor_id(filter.vendor_id)
+    cfgs = {}
+    for cfg in configs:
+        cfgs[cfg.id] = {"cfg": cfg, "items": []}
     for email in emails:
         # Проверка расширения
         if filter.extensions:
@@ -77,20 +81,30 @@ def filter_emails_by_rule(
                 bad.append(email)
                 continue
 
-        filtered.append(email)
+        for key, value in cfgs.items():
+            filename_ok = value["cfg"].filename_template.strip().lower() in email['filename'].lower()
+            if filename_ok:
+                value["items"].append(email)
+
+    if limit:
+        for key, value in cfgs.items():
+            try:
+                value["items"] = [max(value["items"], key=lambda x: datetime.datetime.fromisoformat(x['date']))]
+            except:
+                value["items"] = []
+    all_items = [item for value in cfgs.values() for item in value["items"]]
+    if not all_items:
+        return []
     if start_dt is not None and end_dt is not None:
         out = []
-        for email in filtered:
-            dt = datetime.datetime.strptime(email['date'], "%Y-%m-%d %H:%M")
+        for email in all_items:
+            dt = datetime.datetime.fromisoformat(email['date'])
+            if not dt.tzinfo:
+                dt = dt.replace(tzinfo=datetime.timezone.utc)
             if start_dt <= dt <= end_dt:
                 out.append(email)
         return out
-    if limit:
-        if filtered:
-            return [max(filtered, key=lambda x: datetime.datetime.strptime(x["date"], "%Y-%m-%d %H:%M"))]
-        else:
-            return []
-    return filtered
+    return all_items
 
 
 def remove_duplicates(df: pd.DataFrame) -> pd.DataFrame:
@@ -109,11 +123,22 @@ def remove_duplicates(df: pd.DataFrame) -> pd.DataFrame:
         print(f"Предупреждение: отсутствуют колонки {missing_columns}. Пропускаем дедупликацию.")
         return df
 
+    # ДИАГНОСТИКА
+    print(f"Исходное количество строк: {len(df)}")
+    print(f"Уникальных артикулов до: {df['Артикул'].nunique()}")
+    print(f"Уникальных комбинаций артикул+поставщик до: {df[['Артикул', 'Поставщик']].drop_duplicates().shape[0]}")
     # Сортируем по дате в порядке убывания (самые свежие первыми)
     df_sorted = df.sort_values('Дата', ascending=False)
 
     # Удаляем дубликаты, оставляя первую запись (самую свежую) для каждой комбинации
     df_deduped = df_sorted.drop_duplicates(subset=['Артикул', 'Поставщик'], keep='first')
+
+    # ДИАГНОСТИКА после
+    print(f"Количество строк после: {len(df_deduped)}")
+    print(f"Уникальных артикулов после: {df_deduped['Артикул'].nunique()}")
+    print(
+        f"Уникальных комбинаций артикул+поставщик после: {df_deduped[['Артикул', 'Поставщик']].drop_duplicates().shape[0]}")
+    print(f"Удалено дубликатов: {len(df) - len(df_deduped)}")
 
     print(f"Удалено дубликатов: {len(df) - len(df_deduped)}")
 
@@ -126,7 +151,6 @@ def parse(
         limit: bool = False,
 ):
     vendors = crud.list_vendors()
-
 
     days = 365
 
@@ -143,7 +167,7 @@ def parse(
                 "subject": email.subject,
                 "filename": a.file_name,
                 "filepath": os.path.join(pm.get_user_data(), a.file_path),
-                "date": email.date.strftime("%Y-%m-%d %H:%M")
+                "date": email.date.isoformat()
             }
             for email in emails_instances
             for a in email.attachments
@@ -154,7 +178,13 @@ def parse(
         for letter in filtered:
             source_path = Path(letter.get('filepath'))
             source_ext = source_path.suffix
-            letter_date = datetime.datetime.strptime(letter.get("date"), "%Y-%m-%d %H:%M")
+            #letter_date = datetime.datetime.strptime(letter.get("date"), "%Y-%m-%d %H:%M")
+            letter_date = datetime.datetime.fromisoformat(letter.get("date"))
+            if not letter_date.tzinfo:
+                letter_date = letter_date.replace(tzinfo=datetime.timezone.utc)
+            utc_offset_sec = time.localtime().tm_gmtoff
+            system_timezone = datetime.timezone(datetime.timedelta(seconds=utc_offset_sec))
+            letter_date = letter_date.astimezone(system_timezone)
             cfg_id = find_matching_config(letter.get('filename'), configs)
             if cfg_id is not None:
                 config_obj = next((c for c in configs if c.id == cfg_id), None)

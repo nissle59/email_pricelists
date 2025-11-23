@@ -1,0 +1,683 @@
+import imaplib
+import email
+import traceback
+from email.header import decode_header
+import os
+import re
+from datetime import datetime, timedelta
+from email.utils import parseaddr, parsedate_to_datetime
+from pathlib import Path
+from typing import List, Dict, Optional, Union
+import chardet
+
+import settings
+from crud import (add_letter, add_attachment, list_vendors, add_vendor,
+                  get_vendor_name_by_id, get_email_filter_by_vendor,
+                  update_letter, delete_attachments_by_letter, list_configs_for_vendor_id)
+from models import Letter, Attachment, Filters
+from utils.imap import decode_folder_name
+from utils.paths import pm
+
+
+class YandexIMAPClient:
+    def __init__(self, email: str, password: str, imap_server: str = "imap.yandex.ru", port: int = 993):
+        self.end_dt = None
+        self.start_dt = None
+        self.db_scope: List[Filters] = []
+        self.scope = None
+        self.exluded_folders = [
+            "Outbox", "Spam", "Trash", "\"Drafts|template\"",
+            "Drafts", "Archive", "Sent"
+        ]
+        self.email = email
+        self.password = password
+        self.imap_server = imap_server
+        self.port = port
+        self.mail = None
+        self.connected = False
+        self.senders = []
+        self.vendors = list_vendors()
+
+    def set_folders_to_exculde(self, folders: List[str]):
+        self.exluded_folders = folders
+
+    def set_credentials(self, email: str, password: str, imap_server: str = "imap.yandex.ru", port: int = 993):
+        self.email = email
+        self.password = password
+        self.imap_server = imap_server
+        self.port = port
+
+    def connect(self) -> bool:
+        """Подключение к IMAP серверу Яндекс"""
+        try:
+            self.mail = imaplib.IMAP4_SSL(self.imap_server, self.port)
+            self.mail.login(self.email, self.password)
+            self.connected = True
+            print(f"Успешное подключение к {self.email}")
+            return True
+        except Exception as e:
+            print(f"Ошибка подключения: {e}")
+            return False
+
+    def disconnect(self):
+        """Отключение от сервера"""
+        if self.mail and self.connected:
+            self.mail.logout()
+            self.connected = False
+            print("Отключено от сервера")
+
+    def list_folders(self) -> List[str]:
+        """Получение списка папок"""
+        if not self.connected:
+            return []
+
+        try:
+            status, folders = self.mail.list()
+            if status == "OK":
+                return [folder.decode() for folder in folders]
+        except Exception as e:
+            print(f"Ошибка получения списка папок: {e}")
+        return []
+
+    def select_folder(self, folder: str = "INBOX") -> bool:
+        """Выбор папки для работы"""
+        if not self.connected:
+            return False
+
+        try:
+            status, data = self.mail.select(folder, readonly=True)
+            return status == "OK"
+        except Exception as e:
+            print(f"Ошибка выбора папки {folder}: {e}")
+            return False
+
+    def search_emails(self, criteria: str = "ALL") -> List[str]:
+        """Поиск писем по критериям"""
+        if not self.connected:
+            print("#ERR EMail ящик не подключен!")
+            return []
+
+        try:
+            status, messages = self.mail.uid('SEARCH', None, criteria)
+            if status == "OK":
+                return [msg.decode() if isinstance(msg, bytes) else str(msg)
+                        for msg in messages[0].split()]
+        except Exception as e:
+            print(f"Ошибка поиска писем: {e}")
+        return []
+
+    def _build_date_criteria(self, days: int = None, since_date: datetime = None,
+                             before_date: datetime = None) -> str:
+        """Построение критериев поиска по дате"""
+        if days:
+            since_date = datetime.now() - timedelta(days=days)
+
+        if since_date:
+            self.start_dt = since_date
+            since_date = since_date - timedelta(days=1)
+            since_str = since_date.strftime("%d-%b-%Y").lstrip('0')
+
+        if before_date:
+            self.end_dt = before_date
+            before_date = before_date + timedelta(days=1)
+            before_str = before_date.strftime("%d-%b-%Y").lstrip('0')
+
+        if days or (since_date and before_date):
+            return f'SINCE {since_str}' + (f' BEFORE {before_str}' if before_date else '')
+        elif since_date:
+            return f'SINCE {since_str}'
+        elif before_date:
+            return f'BEFORE {before_str}'
+
+        return ""
+
+    def search_emails_by_date(self, days: int = None, since_date: datetime = None,
+                              before_date: datetime = None, unread_only: bool = False,
+                              senders: Union[str, List[str]] = None) -> List[str]:
+        """Поиск писем по дате"""
+        if not self.connected:
+            return []
+
+        try:
+            date_criteria = self._build_date_criteria(days, since_date, before_date)
+
+            criteria_parts = []
+            if date_criteria:
+                criteria_parts.append(date_criteria)
+            if unread_only:
+                criteria_parts.append('UNSEEN')
+
+            criteria = f'({" ".join(criteria_parts)})' if len(criteria_parts) > 1 else (
+                criteria_parts[0] if criteria_parts else "ALL"
+            )
+
+            return self.search_emails(criteria)
+
+        except Exception as e:
+            print(f"Ошибка поиска писем по дате: {e}")
+            return []
+
+    def get_email_details(self, email_uid: str) -> Dict:
+        """Получение детальной информации о письме"""
+        if not self.connected or not email_uid:
+            return {}
+
+        try:
+            status, msg_data = self.mail.uid('FETCH', email_uid, "(BODY.PEEK[HEADER])")
+            if status != "OK":
+                return {}
+
+            email_headers = msg_data[0][1]
+            msg = email.message_from_bytes(email_headers)
+
+            subject = self._decode_header(msg["Subject"])
+            from_ = self._decode_header(msg["From"])
+            date = msg["Date"]
+            date_dt = parsedate_to_datetime(date)
+
+            if self.start_dt and self.end_dt:
+                if not (self.start_dt <= date_dt <= self.end_dt):
+                    return {}
+
+            name, e_mail = parseaddr(from_)
+
+            if e_mail not in self.senders:
+                return {}
+
+            status, msg_data = self.mail.uid('FETCH', email_uid, "(BODY.PEEK[])")
+            if status != "OK":
+                return {}
+
+            email_body = msg_data[0][1]
+            msg = email.message_from_bytes(email_body)
+
+            email_info = {
+                'uid': email_uid,
+                'subject': subject,
+                'from': from_,
+                'date': date,
+                'attachments': [],
+                'excel_attachments': [],
+                'body': '',
+                'body_html': ''
+            }
+
+            email_info.update(self._process_email_content(msg))
+            return email_info
+
+        except Exception as e:
+            print(f"Ошибка получения письма {email_uid}: {e}")
+            traceback.print_exc()
+            return {}
+
+    def _process_email_content(self, msg) -> Dict:
+        """Обработка содержимого письма и вложений"""
+        body = ""
+        body_html = ""
+        attachments = []
+        excel_attachments = []
+
+        if msg.is_multipart():
+            for part in msg.walk():
+                content_type = part.get_content_type()
+                content_disposition = str(part.get("Content-Disposition"))
+
+                if content_type == "text/plain" and "attachment" not in content_disposition:
+                    body = self._decode_payload(part) or body
+                elif content_type == "text/html" and "attachment" not in content_disposition:
+                    body_html = self._decode_payload(part) or body_html
+                elif "attachment" in content_disposition or part.get_filename():
+                    filename = part.get_filename()
+                    if filename:
+                        filename = self._decode_header(filename)
+                        payload = part.get_payload(decode=True)
+                        if payload:
+                            attachment_info = {
+                                'filename': filename,
+                                'content_type': content_type,
+                                'payload': payload,
+                                'size': len(payload)
+                            }
+                            attachments.append(attachment_info)
+
+                            if self._is_excel_file(filename):
+                                excel_attachments.append(attachment_info)
+        else:
+            content_type = msg.get_content_type()
+            if content_type == "text/plain":
+                body = self._decode_payload(msg)
+            elif content_type == "text/html":
+                body_html = self._decode_payload(msg)
+
+        return {
+            'body': body,
+            'body_html': body_html,
+            'attachments': attachments,
+            'excel_attachments': excel_attachments
+        }
+
+    def _is_excel_file(self, filename: str) -> bool:
+        """Проверяет, является ли файл Excel документом"""
+        excel_extensions = ['.xls', '.xlsx', '.xlsm', '.xlsb']
+        file_ext = os.path.splitext(filename.lower())[1]
+        return file_ext in excel_extensions
+
+    def _decode_payload(self, part) -> str:
+        """Декодирование payload с автоматическим определением кодировки"""
+        try:
+            payload = part.get_payload(decode=True)
+            if not payload:
+                return ""
+
+            encoding = part.get_content_charset()
+            if not encoding:
+                detected = chardet.detect(payload)
+                encoding = detected.get('encoding', 'utf-8')
+
+            encodings_to_try = [encoding, 'utf-8', 'cp1251', 'koi8-r', 'iso-8859-1', 'windows-1251']
+
+            for enc in encodings_to_try:
+                try:
+                    if enc:
+                        return payload.decode(enc, errors='replace')
+                except (UnicodeDecodeError, LookupError):
+                    continue
+
+            return payload.decode('utf-8', errors='replace')
+
+        except Exception as e:
+            print(f"Ошибка декодирования payload: {e}")
+            return ""
+
+    def _decode_header(self, header) -> str:
+        """Декодирование заголовков email"""
+        if header is None:
+            return ""
+
+        try:
+            decoded_parts = decode_header(header)
+            decoded_header = ""
+            for part, encoding in decoded_parts:
+                if isinstance(part, bytes):
+                    if encoding:
+                        decoded_header += part.decode(encoding, errors='replace')
+                    else:
+                        for enc in ['utf-8', 'cp1251', 'iso-8859-1']:
+                            try:
+                                decoded_header += part.decode(enc, errors='replace')
+                                break
+                            except UnicodeDecodeError:
+                                continue
+                else:
+                    decoded_header += part
+
+            return decoded_header
+        except Exception as e:
+            print(f"Ошибка декодирования заголовка: {e}")
+            return str(header) if header else ""
+
+    def _check_filter_conditions(self, text: str, contains: str = None,
+                                 excludes: str = None) -> bool:
+        """Проверка условий фильтра"""
+        if contains:
+            patterns = [r.strip().lower() for r in contains.split(";")]
+            if not any(p in text.lower() for p in patterns):
+                return False
+
+        if excludes:
+            patterns = [r.strip().lower() for r in excludes.split(";")]
+            if any(p in text.lower() for p in patterns):
+                return False
+
+        return True
+
+    def _check_attachment_approval(self, filename: str, email_rule: Filters) -> bool:
+        """Проверка одобрения вложения по правилам"""
+        if not email_rule:
+            return True
+
+        if not self._check_filter_conditions(filename, email_rule.filename_contains,
+                                             email_rule.filename_excludes):
+            return False
+
+        if email_rule.extensions:
+            extensions = [ext.strip() for ext in email_rule.extensions.split(",")]
+            if not any(filename.lower().endswith(ext.lower()) for ext in extensions):
+                return False
+
+        return True
+
+    def download_excel_attachments(self, email_info: Dict, download_folder: str = "unsort",
+                                   email_rule: Filters = None) -> List[str]:
+        """Скачивание только Excel вложений из письма"""
+        download_folder = os.path.join("attachments", str(download_folder))
+        downloaded_files = []
+        excel_attachments = email_info.get('excel_attachments', [])
+
+        if not excel_attachments:
+            return downloaded_files
+
+        for attachment in excel_attachments:
+            try:
+                filename = attachment['filename']
+                payload = attachment['payload']
+
+                if not filename or not payload:
+                    continue
+
+                clean_filename = re.sub(r'[<>:"/\\|?*]', '_', filename)
+
+                if not self._check_attachment_approval(clean_filename, email_rule):
+                    continue
+
+                filepath = os.path.join(download_folder, clean_filename)
+                abs_filepath = os.path.join(pm.get_user_data(), filepath)
+
+                os.makedirs(os.path.dirname(abs_filepath), exist_ok=True)
+
+                counter = 1
+                original_filepath = abs_filepath
+                while os.path.exists(abs_filepath):
+                    name, ext = os.path.splitext(original_filepath)
+                    abs_filepath = f"{name}_{counter}{ext}"
+                    filepath = os.path.join(download_folder, f"{Path(original_filepath).stem}_{counter}{ext}")
+                    counter += 1
+
+                with open(abs_filepath, 'wb') as f:
+                    f.write(payload)
+
+                downloaded_files.append(filepath)
+                print(f"Скачан Excel файл: {clean_filename} ({len(payload)} bytes)")
+
+            except Exception as e:
+                print(f"Ошибка скачивания Excel файла {filename}: {e}")
+                traceback.print_exc()
+
+        return downloaded_files
+
+    def get_emails_with_excel_attachments(self, email_uids: List[str]) -> List[Dict]:
+        """Получение писем с Excel вложениями из списка UID"""
+        emails_with_excel = []
+
+        for email_uid in email_uids:
+            print(f"Обработка письма {email_uids.index(email_uid) + 1}/{len(email_uids)}: {email_uid}")
+            try:
+                email_info = self.get_email_details(email_uid)
+                if email_info and email_info.get('excel_attachments'):
+                    print(f"Найдено письмо с Excel вложением: [{email_info.get('date')}] "
+                          f"{email_info.get('from')}: {email_info.get('subject')}")
+                    emails_with_excel.append(email_info)
+            except Exception as e:
+                print(f"Ошибка обработки письма {email_uid}: {e}")
+                continue
+
+        return emails_with_excel
+
+    def _filter_emails_by_limit(self, emails: List[Dict], vendor_id: int) -> List[Dict]:
+        """Фильтрация писем с учетом лимита - по 1 для каждой конфигурации"""
+        configs = list_configs_for_vendor_id(vendor_id)
+
+        cfgs = {cfg.id: {"cfg": cfg, "items": []} for cfg in configs}
+
+        for email in emails:
+            for cfg_id, value in cfgs.items():
+                filename = email.get('filename', '')
+                if value["cfg"].filename_template.strip().lower() in filename.lower():
+                    value["items"].append(email)
+
+        result = []
+        for value in cfgs.values():
+            if value["items"]:
+                latest = max(value["items"], key=lambda x: datetime.fromisoformat(x['date']))
+                result.append(latest)
+
+        return result
+
+    def download_all_excel_files(self,
+                                 limit: int = None,
+                                 days: int = None,
+                                 since_date: datetime = None,
+                                 before_date: datetime = None,
+                                 folder: str = "attachments",
+                                 unread_only: bool = False,
+                                 senders: Union[str, List[str]] = None) -> Dict:
+        """Скачивает все Excel файлы из писем"""
+
+        if limit:
+            email_uids = self.search_emails("ALL")
+            search_description = f"последние {limit} писем"
+        else:
+            email_uids = self.search_emails_by_date(
+                days=days,
+                since_date=since_date,
+                before_date=before_date,
+                unread_only=unread_only,
+                senders=senders
+            )
+            search_description = self._build_search_description(days, since_date, before_date,
+                                                                unread_only, senders)
+
+        if email_uids:
+            print(f"К обработке найдено {len(email_uids)} писем...")
+
+        emails_with_excel = self.get_emails_with_excel_attachments(email_uids)
+
+        return self._process_and_download_emails(emails_with_excel, folder, limit is not None)
+
+    def _build_search_description(self, days, since_date, before_date, unread_only, senders):
+        """Построение описания поиска"""
+        if days:
+            desc = f"письма за последние {days} дней"
+        elif since_date and before_date:
+            desc = f"письма с {since_date} по {before_date}"
+        elif since_date:
+            desc = f"письма с {since_date}"
+        elif before_date:
+            desc = f"письма до {before_date}"
+        else:
+            desc = "все письма"
+
+        if unread_only:
+            desc += " (только непрочитанные)"
+        if senders:
+            sender_list = senders if isinstance(senders, list) else [senders]
+            desc += f" (отправители: {', '.join(sender_list)})"
+
+        return desc
+
+    def _process_and_download_emails(self, emails_with_excel: List[Dict],
+                                     folder: str, apply_limit: bool) -> Dict:
+        """Обработка и скачивание писем"""
+        download_results = {}
+
+        for i, email_info in enumerate(emails_with_excel, 1):
+            raw_from = email_info['from'].strip()
+            print(f"Обработка письма {i}/{len(emails_with_excel)} {email_info['subject']}")
+
+            match = re.search(r'[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}', raw_from)
+            sender_email = match.group(0) if match else email_info['from']
+
+            vendor_id, email_rule = self._find_vendor_and_rule(sender_email)
+
+            if not vendor_id:
+                continue
+
+            if email_rule and not self._check_email_subject(email_info['subject'], email_rule):
+                continue
+
+            downloaded_files = self.download_excel_attachments(email_info, vendor_id, email_rule)
+
+            if downloaded_files:
+                self._save_letter_and_attachments(email_info, sender_email, vendor_id, downloaded_files)
+
+                download_results[email_info['uid']] = {
+                    'subject': email_info['subject'],
+                    'from': email_info['from'],
+                    'date': email_info['date'],
+                    'downloaded_files': downloaded_files,
+                    'excel_count': len(email_info['excel_attachments']),
+                }
+
+        return download_results
+
+    def _find_vendor_and_rule(self, sender_email: str) -> tuple[Optional[int], Optional[Filters]]:
+        """Поиск поставщика и правила для отправителя"""
+        vendor_id = None
+        email_rule = None
+
+        if self.scope:
+            for vendor, emails in self.scope.items():
+                if sender_email in emails:
+                    vendor_id = self._get_or_create_vendor(vendor)
+                    break
+
+        if self.db_scope:
+            for rule in self.db_scope:
+                if sender_email in [s.strip() for s in rule.senders.split(';')]:
+                    v_name = get_vendor_name_by_id(rule.vendor_id)
+                    vendor_id = self._get_or_create_vendor(v_name)
+                    email_rule = rule
+                    break
+
+        return vendor_id, email_rule
+
+    def _get_or_create_vendor(self, vendor_name: str) -> int:
+        """Получить ID поставщика или создать нового"""
+        existing_vendor = next((v for v in self.vendors if v.name == vendor_name), None)
+        if existing_vendor:
+            return existing_vendor.id
+        return add_vendor(vendor_name).id
+
+    def _check_email_subject(self, subject: str, email_rule: Filters) -> bool:
+        """Проверка темы письма по правилам"""
+        return self._check_filter_conditions(subject, email_rule.subject_contains,
+                                             email_rule.subject_excludes)
+
+    def _save_letter_and_attachments(self, email_info: Dict, sender_email: str,
+                                     vendor_id: int, downloaded_files: List[str]):
+        """Сохранение письма и вложений в БД"""
+        d = datetime.strptime(email_info['date'], "%a, %d %b %Y %H:%M:%S %z")
+
+        letter = Letter(
+            letter_id=int(email_info['uid']),
+            sender=sender_email,
+            subject=email_info['subject'],
+            date=d,
+            vendor_id=vendor_id
+        )
+
+        try:
+            add_letter(letter)
+        except Exception:
+            update_letter(letter)
+
+        delete_attachments_by_letter(letter.letter_id)
+
+        for file_path in downloaded_files:
+            abs_path = Path(pm.get_user_data()) / file_path
+            size = os.path.getsize(abs_path)
+
+            attachment = Attachment(
+                letter_id=int(email_info['uid']),
+                file_name=os.path.basename(file_path),
+                file_path=file_path,
+                size=size
+            )
+            add_attachment(attachment)
+
+    def get_all_prices(self, limit_by_folder=None, days=None, since_date=None,
+                       before_date=None, folder="attachments", unread_only=False,
+                       simple_scope: Filters = None):
+        """Получение всех прайсов"""
+        if not self.connect():
+            return []
+
+        try:
+            self._setup_scope(simple_scope)
+            results = {}
+            out = []
+
+            print(f"Ищем письма для адресов: {', '.join(self.senders)}")
+
+            folders_data = self.list_folders()
+            for folder_line in folders_data:
+                parts = folder_line.split('"|"')
+                if len(parts) > 1:
+                    folder_name = parts[-1].strip()
+                    if folder_name in self.exluded_folders:
+                        continue
+
+                    decoded_name = decode_folder_name(folder_name)
+                    print(f"Ищем в папке: {decoded_name}")
+
+                    self.select_folder(folder_name)
+                    results.update(self.download_all_excel_files(
+                        limit=limit_by_folder,
+                        days=days,
+                        since_date=since_date,
+                        before_date=before_date,
+                        folder=folder,
+                        unread_only=unread_only,
+                        senders=self.senders
+                    ))
+
+            out = self._format_results(results)
+            return out
+
+        except Exception as e:
+            traceback.print_exc()
+            print(f"Ошибка при обработке писем: {e}")
+            return []
+        finally:
+            self.disconnect()
+
+    def _setup_scope(self, simple_scope: Filters = None):
+        """Настройка области поиска"""
+        if simple_scope:
+            self.db_scope = [simple_scope]
+        else:
+            self.db_scope = []
+            for vendor in self.vendors:
+                if vendor.active:
+                    self.db_scope.append(get_email_filter_by_vendor(vendor.id))
+
+        self.senders = []
+        for rule in self.db_scope:
+            self.senders.extend(s.strip() for s in rule.senders.split(';'))
+
+    def _format_results(self, results: Dict) -> List[Dict]:
+        """Форматирование результатов"""
+        out = []
+
+        if results:
+            print("\n--- Детали скачивания ---")
+            for email_uid, info in results.items():
+                if info['downloaded_files']:
+                    print(f"\n✓ Письмо: {info['subject']}")
+                    print(f"  От: {info['from']}")
+                    print(f"  Дата: {info['date']}")
+
+                    for file_path in info['downloaded_files']:
+                        out.append({
+                            "subject": info['subject'],
+                            "filename": file_path,
+                            "date": info['date'],
+                        })
+                        file_size = os.path.getsize(os.path.join(pm.get_user_data(), file_path))
+                        print(f"  📊 {os.path.basename(file_path)} ({file_size} bytes)")
+        else:
+            print("Excel файлы не найдены")
+
+        return out
+
+
+s = settings.get_settings()
+client = YandexIMAPClient(
+    s.get('email_username'),
+    s.get('email_password'),
+    s.get('email_server', 'imap.yandex.ru'),
+    int(s.get('email_port', 993))
+)
+
+if __name__ == '__main__':
+    client.get_all_prices(days=30)

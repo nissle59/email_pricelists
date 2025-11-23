@@ -298,6 +298,30 @@ class ParserConfigWindow(ttk.Toplevel):
 
     def _load_emails(self):
         """Моковая функция загрузки писем"""
+        def wrapper():
+            email_client.get_all_prices(simple_scope=self.rule_data, limit_by_folder=10)
+            emails = []
+            if self.rule_data.senders:
+                if self.rule_data.vendor_id:
+                    emails_instances = list_letters(vendor_id=self.rule_data.vendor_id)
+                    emails = [
+                        {
+                            "subject": email.subject,
+                            "filename": a.file_name,
+                            "date": email.date.strftime("%Y-%m-%d %H:%M")
+                        }
+                        for email in emails_instances
+                        for a in email.attachments
+                    ]
+
+                # Фильтруем по правилу
+                filtered_emails = self._filter_emails_by_rule(emails)
+
+                # Обновляем статус
+                self.email_status_var.set(f"Найдено писем: {len(filtered_emails)}")
+
+                # Показываем письма в таблице
+                self._display_emails_in_tree(filtered_emails)
         # Создаем моковые данные писем
         mock_emails = [
             {"subject": "Прайс-лист на ноябрь", "filename": "прайс_ноябрь.xlsx", "date": "2024-11-20"},
@@ -319,7 +343,7 @@ class ParserConfigWindow(ttk.Toplevel):
             cfgs = list_configs_for_vendor(self.rule_data.vendor.name)
             if len(cfgs) > 0:
                 #email_client.get_all_prices(simple_scope=self.rule_data)
-                SimpleConsoleWindow(email_client.get_all_prices, simple_scope=self.rule_data, limit_by_folder=10)
+                SimpleConsoleWindow(wrapper)
         emails = []
         if self.rule_data.senders:
             if self.rule_data.vendor_id:

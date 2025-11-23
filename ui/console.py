@@ -159,18 +159,18 @@ class ConsoleWindow:
 
     def _execute_task(self, task_function, args, kwargs, function_name):
         """Выполняет задачу и перехватывает исключения"""
-        try:
-            task_function(*args, **kwargs)
-            # Логируем успешное завершение
-            if self.logger:
-                self.logger.info(f"Функция {function_name} выполнена успешно")
-        except Exception as e:
-            error_msg = f"Ошибка при выполнении задачи {function_name}: {e}"
-            print(error_msg)
-            if self.logger:
-                self.logger.error(error_msg)
-        finally:
-            self.is_running = False
+        # try:
+        task_function(*args, **kwargs)
+        # Логируем успешное завершение
+        if self.logger:
+            self.logger.info(f"Функция {function_name} выполнена успешно")
+        # except Exception as e:
+        #     error_msg = f"Ошибка при выполнении задачи {function_name}: {e}"
+        #     print(error_msg)
+        #     if self.logger:
+        #         self.logger.error(error_msg)
+        # finally:
+        self.is_running = False
 
     def _check_thread(self):
         """Проверяет статус выполнения потока"""
