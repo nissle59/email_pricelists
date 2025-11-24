@@ -23,7 +23,7 @@ from ui.role_editor import RolesEditor
 from utils.db import DB_FILE
 from utils.imap import decode_folder_name
 from utils.paths import pm
-from ya_client import client as email_client
+from ya_client import client as email_client, ThreadSafeIMAPConnection
 
 if TYPE_CHECKING:
     from ui.gui import App
@@ -105,9 +105,9 @@ class EmailSettingsFrame(ttk.Frame):
 
     def _test_connection(self):
         # Здесь будет тестирование подключения
-        client = email_client
-        client.set_credentials(self.email_var.get(), self.password_var.get(), self.imap_var.get(),
+        client = ThreadSafeIMAPConnection(self.email_var.get(), self.password_var.get(), self.imap_var.get(),
                                int(self.port_var.get()))
+        #client.set_credentials()
         try:
             conn_res = client.connect()
             if conn_res == 1:

@@ -55,10 +55,15 @@ class ThreadSafeIMAPConnection:
 
             try:
                 print(f"🔄 Устанавливаем соединение с {self.imap_server}...")
+                # Создаем SSL контекст без проверки сертификата
+                ssl_context = ssl.create_default_context()
+                ssl_context.check_hostname = False
+                ssl_context.verify_mode = ssl.CERT_NONE
+
                 self._connection = imaplib.IMAP4_SSL(
                     self.imap_server,
                     self.port,
-                    ssl_context=ssl.create_default_context()
+                    ssl_context=ssl_context
                 )
                 self._connection.login(self.email, self.password)
                 self.connected = True
@@ -770,6 +775,12 @@ class OptimizedYandexIMAPClient:
         self.vendors = list_vendors()
         self.progress_tracker = ProgressTracker()
         self.emails_to_pass = []
+
+    def set_credentials(self, email: str, password: str, server: str = "imap.yandex.ru", port: int = 993):
+        self.email = email
+        self.password = password
+        self.imap_server = server
+        self.port = port
 
     def set_folders_to_exclude(self, folders: List[str]):
         self.exluded_folders = folders
