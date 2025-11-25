@@ -25,7 +25,7 @@ class QuantumConfigDialog(ttk.Toplevel):
     def __init__(self, parent, available_columns, quantum_config):
         super().__init__(parent)
         self.title("Настройка логики кванта")
-        self.geometry("600x500")
+        self.geometry("800x700")
         self.transient(parent)
         self.grab_set()
         self.config = quantum_config
@@ -97,6 +97,11 @@ class QuantumConfigDialog(ttk.Toplevel):
         except:
             self._add_mapping_row("шт", "1")  # По умолчанию для штук
             self._add_mapping_row("шт.", "1")
+            self._add_mapping_row("блок", "Штук в блоке")
+            self._add_mapping_row("бл", "Штук в блоке")
+            self._add_mapping_row("Дисплейбокс", "Штук в блоке")
+            self._add_mapping_row("кор", "Штук в коробке")
+            self._add_mapping_row("кор.", "Штук в коробке")
 
 
         # Кнопка добавления нового сопоставления
