@@ -5,7 +5,7 @@ DMG_NAME="Pricelist"
 VOLUME_NAME="Pricelist"
 
 rm -rf dist/"$APP_NAME"
-rm -rf dist/"$DMG_NAME.dmg"
+rm -rf dist/"$DMG_NAME Mac.dmg"
 rm -rf dist/"$VOLUME_NAME"
 
 source .venv/bin/activate
@@ -24,10 +24,10 @@ cp -R dist/"$APP_NAME" temp_dir/
 ln -s /Applications temp_dir/
 
 # Создаем DMG
-hdiutil create -volname "$VOLUME_NAME" -srcfolder temp_dir -ov -format UDZO dist/"$DMG_NAME.dmg"
+hdiutil create -volname "$VOLUME_NAME" -srcfolder temp_dir -ov -format UDZO dist/"$DMG_NAME Mac.dmg"
 
 # Очищаем временные файлы
 rm -rf temp_dir
 rm -rf dist/"$VOLUME_NAME"
 
-echo "DMG создан: ${DMG_NAME}.dmg"
+echo "DMG создан: ${DMG_NAME} Mac.dmg"

@@ -89,7 +89,7 @@ def update_email_filter(filter_id: int, filter: Filters):
             db_filter.filename_excludes = filter.filename_excludes
             db_filter.senders = filter.senders
             db_filter.extensions = filter.extensions
-            db_filter.active = filter.active  # Исправлено: было db_filter.active
+            db_filter.active = db_filter.active  # Исправлено: было db_filter.active
 
             s.commit()
             s.refresh(db_filter)
